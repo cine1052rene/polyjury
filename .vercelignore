@@ -1,0 +1,19 @@
+# Never upload secrets or private material
+.env
+.env.*
+!.env.example
+*.key
+private/
+memory/
+CLAUDE.md
+scratch/
+.playwright-mcp/
+assets/
+
+# Local tooling / caches
+.git/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.log

@@ -22,3 +22,5 @@ assets/test/
 
 # browser automation artifacts
 .playwright-mcp/
+
+.vercel
