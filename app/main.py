@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import re
 import sys
 import time
 from collections import defaultdict, deque
@@ -65,6 +66,18 @@ class AccuseIn(BaseModel):
     process: ProcessLog = Field(default_factory=ProcessLog)
 
 
+_HEADING = re.compile(r"#+\s")
+
+
+def _clean_snippet(content: str) -> str:
+    """Drop site-navigation text that some pages put before the first markdown heading."""
+    content = content or ""
+    m = _HEADING.search(content)
+    if m and m.start() < 500 and content[:m.start()].count("+") >= 3:
+        content = content[m.end():]
+    return " ".join(content.split())
+
+
 def _client_key(request: Request) -> str:
     return request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "?")
 
@@ -116,9 +129,10 @@ def search(body: SearchIn, request: Request) -> dict:
         raise HTTPException(502, f"search failed: {exc.__class__.__name__}") from exc
     results = []
     for r in res.get("results", []):
+        content = _clean_snippet(r.get("content", ""))
         item = {"url": r["url"], "title": r.get("title", ""), "domain": urlparse(r["url"]).netloc.removeprefix("www."),
-                "published": r.get("published_date"), "snippet": (r.get("content") or "")[:280]}
-        _result_by_url[r["url"]] = {**item, "snippet": (r.get("content") or "")[:1500]}
+                "published": r.get("published_date"), "snippet": content[:280]}
+        _result_by_url[r["url"]] = {**item, "snippet": content[:1500]}
         results.append(item)
     _search_cache[key] = (time.time(), results)
     return {"query": query, "results": results, "cached": False}

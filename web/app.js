@@ -76,7 +76,7 @@
   async function selectCity(cityId) {
     if (state.city === cityId && state.caseData) return;
     Object.assign(state, { city: cityId, caseData: null, suspectId: null, evidence: null,
-      queries: [], opened: [], startedAt: Date.now(), done: false });
+      results: [], queries: [], opened: [], startedAt: Date.now(), done: false });
     savePref("fd-city", cityId);
     renderCityTabs();
     $("case-title").textContent = t("loading");
