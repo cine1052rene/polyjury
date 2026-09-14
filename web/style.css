@@ -93,7 +93,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   background: var(--red); color: #fff; border: 0; border-radius: 999px; padding: 11px 20px; font-weight: 700;
 }
 .primary:hover:not(:disabled) { filter: brightness(1.08); }
-#accuse-btn { margin-top: 18px; width: 100%; font-size: 17px; padding: 14px; }
+#accuse-btn { margin-top: 12px; width: 100%; font-size: 17px; padding: 14px; }
 .muted { color: var(--muted); }
 .casefile .muted { color: #7a7061; }
 .small { font-size: 13px; }
@@ -144,3 +144,16 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .footer { max-width: 1280px; margin: 0 auto; padding: 8px clamp(16px, 4vw, 40px) 40px; }
 .footer summary { cursor: pointer; color: var(--gold); }
 .footer details p { color: #c4cad6; max-width: 760px; }
+
+.evidence-text {
+  max-height: 180px; overflow: auto; margin: 6px 0 8px; padding: 8px 10px; font-size: 13px; line-height: 1.55;
+  background: #fff; border-radius: 8px; color: #3f3a32; user-select: text; white-space: pre-wrap;
+}
+.proof textarea {
+  width: 100%; font: inherit; font-size: 14px; color: var(--ink); background: #fffaf1;
+  border: 1px solid #c9b89a; border-radius: 10px; padding: 9px 11px; resize: vertical;
+}
+.proof textarea:focus { outline: 2px solid var(--gold); border-color: transparent; }
+.proof .section-label { display: block; text-transform: none; letter-spacing: 0; font-size: 13px; }
+.requirements { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; font-size: 14px; color: #7a7061; }
+.requirements li.met { color: var(--green); font-weight: 600; }

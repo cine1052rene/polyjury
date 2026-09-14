@@ -42,8 +42,17 @@
         <div id="evidence-card" class="evidence-card" hidden></div>
       </div>
 
+      <div id="proof" class="proof" hidden>
+        <label class="section-label" for="quote-input" data-i18n="quoteLabel"></label>
+        <textarea id="quote-input" rows="2" maxlength="800"></textarea>
+        <label class="section-label" for="reason-input" data-i18n="reasonLabel"></label>
+        <textarea id="reason-input" rows="2" maxlength="400"></textarea>
+      </div>
+
+      <h3 class="section-label" data-i18n="requirements"></h3>
+      <ul id="requirements" class="requirements"></ul>
       <button id="accuse-btn" class="primary" type="button" disabled data-i18n="accuse"></button>
-      <p id="accuse-hint" class="muted small" data-i18n="accuseHint"></p>
+      <p id="accuse-error" class="error small" aria-live="polite"></p>
     </section>
 
     <section class="investigation" aria-labelledby="investigate-title">

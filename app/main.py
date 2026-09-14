@@ -22,6 +22,7 @@ from tavily import TavilyClient  # noqa: E402
 import config  # noqa: E402
 from engine import store  # noqa: E402
 from engine.cities import CITIES  # noqa: E402
+from engine.evidence import EvidenceError, check_inputs, sign_result, verify_quote, verify_token  # noqa: E402
 from engine.grading import grade  # noqa: E402
 
 app = FastAPI(title="Factdunit")
@@ -29,7 +30,8 @@ app = FastAPI(title="Factdunit")
 SEARCH_TTL = 3600
 RATE_LIMIT, RATE_WINDOW = 30, 600          # searches per client per 10 minutes
 _search_cache: dict[str, tuple[float, list[dict]]] = {}
-_result_by_url: dict[str, dict] = {}
+_page_cache: dict[str, str] = {}
+_submissions: dict[tuple[str, str], float] = {}   # best-effort per instance; accounts replace this later
 _rate: dict[str, deque] = defaultdict(deque)
 _tavily: TavilyClient | None = None
 
@@ -46,13 +48,6 @@ class SearchIn(BaseModel):
     query: str = Field(min_length=2, max_length=200)
 
 
-class Evidence(BaseModel):
-    url: str
-    title: str = ""
-    snippet: str = ""
-    published: str | None = None
-
-
 class ProcessLog(BaseModel):
     elapsed_sec: int = 0
     queries: list[str] = Field(default_factory=list)
@@ -62,8 +57,14 @@ class ProcessLog(BaseModel):
 class AccuseIn(BaseModel):
     case_id: str
     suspect_id: str
-    evidence: Evidence | None = None
+    evidence_token: str = ""
+    quote: str = Field(default="", max_length=800)
+    reasoning: str = Field(default="", max_length=400)
     process: ProcessLog = Field(default_factory=ProcessLog)
+
+
+def _fail(status: int, code: str, message: str) -> HTTPException:
+    return HTTPException(status, {"code": code, "message": message})
 
 
 _HEADING = re.compile(r"#+\s")
@@ -131,25 +132,49 @@ def search(body: SearchIn, request: Request) -> dict:
     for r in res.get("results", []):
         content = _clean_snippet(r.get("content", ""))
         item = {"url": r["url"], "title": r.get("title", ""), "domain": urlparse(r["url"]).netloc.removeprefix("www."),
-                "published": r.get("published_date"), "snippet": content[:280]}
-        _result_by_url[r["url"]] = {**item, "snippet": content[:1500]}
+                "published": r.get("published_date"), "snippet": content[:280], "text": content[:1500]}
+        item["token"] = sign_result(city.id, item)
         results.append(item)
     _search_cache[key] = (time.time(), results)
     return {"query": query, "results": results, "cached": False}
 
 
+def _fetch_page(url: str) -> str:
+    if url not in _page_cache:
+        try:
+            res = tavily().extract(urls=[url], extract_depth="basic")
+            _page_cache[url] = ((res.get("results") or [{}])[0].get("raw_content") or "")[:60000]
+        except Exception:  # noqa: BLE001
+            _page_cache[url] = ""
+    return _page_cache[url]
+
+
 @app.post("/api/accuse")
-def accuse(body: AccuseIn) -> dict:
+def accuse(body: AccuseIn, request: Request) -> dict:
     case = store.load_case_by_id(body.case_id)
     if case is None:
-        raise HTTPException(404, "case not found")
-    evidence = None
-    if body.evidence:
-        evidence = _result_by_url.get(body.evidence.url) or {**body.evidence.model_dump(), "snippet": body.evidence.snippet[:600]}
+        raise _fail(404, "case_not_found", "Case not found.")
+    if not any(s["id"] == body.suspect_id for s in case["public"]["suspects"]):
+        raise _fail(400, "unknown_suspect", "Pick one of the suspects.")
+    if not body.evidence_token:
+        raise _fail(400, "evidence_required", "Pin evidence from your own search before accusing.")
+    lock = (case["id"], _client_key(request))
+    if lock in _submissions:
+        raise _fail(409, "already_submitted", "You already closed this case.")
     try:
-        return grade(case, body.suspect_id, evidence, body.process.model_dump())
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        evidence = verify_token(body.evidence_token, case["city"])
+        check_inputs(body.quote, body.reasoning)
+        overlap = verify_quote(body.quote, evidence, fetch_page=_fetch_page)
+    except EvidenceError as exc:
+        raise _fail(400, exc.code, str(exc)) from exc
+    _submissions[lock] = time.time()
+    try:
+        result = grade(case, body.suspect_id, evidence, body.quote, body.reasoning, body.process.model_dump())
+    except Exception:
+        _submissions.pop(lock, None)   # let the player retry if the court itself failed
+        raise
+    result["quote_check"] = {"overlap": overlap}
+    return result
 
 
 app.mount("/", StaticFiles(directory=ROOT / "web", html=True), name="web")
