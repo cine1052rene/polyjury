@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from polyjury import chair, panel, pipeline, report  # noqa: E402
+from polyjury import chair, panel, pipeline, report, sources  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 UI = ROOT / "webui"
@@ -45,6 +45,10 @@ class ReviewIn(BaseModel):
 
 class MergeIn(BaseModel):
     findings: list[dict]
+
+
+class ClaimIn(BaseModel):
+    claim: dict
 
 
 class ProveIn(BaseModel):
@@ -102,6 +106,15 @@ def prove(body: ProveIn) -> dict:
     claim = chair.Claim(**{k: v for k, v in body.claim.items() if k in chair.Claim.__annotations__})
     claim = pipeline.prove(claim, body.bundle, repo)
     return claim.__dict__
+
+
+@app.post("/api/sources")
+def cite(body: ClaimIn) -> dict:
+    """What the literature already says about this defect, via Tavily."""
+    citation = sources.cite(body.claim)
+    return {"claim": citation.claim, "query": citation.query,
+            "why_it_matters": citation.why_it_matters, "error": citation.error,
+            "sources": [s.__dict__ for s in citation.sources]}
 
 
 @app.post("/api/fix-prompt")

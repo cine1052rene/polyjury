@@ -6,71 +6,91 @@
 <title>Polyjury — a jury of models, and every claim has to prove itself</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/style.css" />
 </head>
-<body>
-<header class="top">
+<body class="app">
+
+<aside class="rail">
   <div class="brand">
     <span class="logo">&#9878;</span>
     <div>
-      <h1>Polyjury</h1>
-      <p class="sub">One AI wrote your code. Don't let one AI judge it. A jury of models reviews it separately, and nothing reaches you until it is <strong>reproduced by running it</strong>.</p>
+      <strong>Polyjury</strong>
+      <span>proof by execution</span>
     </div>
   </div>
-</header>
 
-<main>
-  <section class="start">
+  <nav>
+    <p class="rail-label">Verify</p>
+    <button class="mode active" data-mode="repo" type="button">
+      <span class="mode-icon">&#9679;</span>
+      <span><b>Repository</b><i>a public GitHub project</i></span>
+    </button>
+    <button class="mode" data-mode="snippet" type="button">
+      <span class="mode-icon">&#9679;</span>
+      <span><b>Single file</b><i>paste the code itself</i></span>
+    </button>
+
+    <p class="rail-label">Case files</p>
+    <button class="mode" data-mode="recorded" type="button">
+      <span class="mode-icon">&#9634;</span>
+      <span><b>Recorded verdict</b><i>a finished case, replayed</i></span>
+    </button>
+  </nav>
+
+  <div class="rail-foot">
+    <p class="rail-label">Court</p>
+    <ul id="court-status">
+      <li><span class="dot"></span> jurors <b id="juror-count">…</b></li>
+      <li><span class="dot" id="sandbox-dot"></span> sandbox <b id="sandbox-state">checking</b></li>
+    </ul>
+  </div>
+</aside>
+
+<main class="workspace">
+  <header class="bar">
+    <div>
+      <h1 id="mode-title">Repository</h1>
+      <p id="mode-note">One AI wrote your code. Don't let one AI judge it.</p>
+    </div>
+    <button class="toggle" id="sources-toggle" type="button" aria-pressed="false">Sources</button>
+  </header>
+
+  <section class="composer">
     <form id="run-form">
-      <label for="target">Public GitHub repository</label>
-      <div class="row">
-        <input id="target" name="target" type="url" spellcheck="false"
-               placeholder="https://github.com/owner/repo" required />
-        <button class="primary" id="run-btn" type="submit">Verify</button>
+      <div class="row" id="row-repo">
+        <input id="target" type="url" spellcheck="false"
+               placeholder="https://github.com/owner/repo" />
+        <button class="primary" id="run-btn" type="submit">Convene the jury</button>
       </div>
-      <p class="hint">Your own project, please. Polyjury reads the source; it never pushes anything back.
-        A live verdict takes about two minutes &mdash; or
-        <button type="button" class="linky" id="example-btn">watch a recorded one</button>.</p>
+      <div class="row col" id="row-snippet" hidden>
+        <textarea id="snippet" rows="9" spellcheck="false"
+                  placeholder="Paste a file your AI assistant wrote for you…"></textarea>
+        <button class="primary" id="run-btn-2" type="submit">Convene the jury</button>
+      </div>
     </form>
+    <p class="hint" id="composer-hint">Your own project, please. A verdict takes about two minutes.</p>
     <p class="error" id="error" hidden></p>
-    <p class="replay-note" id="replay-note" hidden>Recorded verdict on a real public repository, replayed at reading speed.</p>
   </section>
 
-  <section class="stage" id="stage-collect" hidden>
-    <h2><span class="num">1</span> The code under review</h2>
-    <p class="stage-note" id="collect-note"></p>
-    <ul class="files" id="files"></ul>
-  </section>
-
-  <section class="stage" id="stage-panel" hidden>
-    <h2><span class="num">2</span> The jury reads it &mdash; separately</h2>
-    <p class="stage-note">Each juror gets the same code and never sees the others' answers.</p>
-    <div class="panel-grid" id="panel"></div>
-  </section>
-
-  <section class="stage" id="stage-chair" hidden>
-    <h2><span class="num">3</span> Nemotron presides</h2>
-    <p class="stage-note" id="chair-note">Merging duplicates and dropping what cannot be checked&hellip;</p>
-  </section>
-
-  <section class="stage" id="stage-proof" hidden>
-    <h2><span class="num">4</span> Every claim has to prove itself</h2>
-    <p class="stage-note">Nemotron writes a script for each claim and the script is executed. The verdict comes from what actually happened.</p>
-    <div class="claims" id="claims"></div>
-  </section>
-
-  <section class="stage result" id="stage-done" hidden>
-    <h2>Result</h2>
-    <p class="score" id="score"></p>
-    <button class="primary" id="copy-btn" type="button">Copy the fix prompt</button>
-    <pre class="prompt" id="fix-prompt"></pre>
+  <section class="timeline" id="timeline">
+    <div class="idle" id="idle">
+      <p>Nothing before the court yet.</p>
+      <p class="muted">Three models read your code separately, Nemotron presides, and every claim
+        is decided by running a script — not by asking a model again.</p>
+    </div>
   </section>
 </main>
 
-<footer>
-  <p>Reviewers and chair run on <strong>Nebius Token Factory</strong>. Proof scripts run in <strong>Token Factory Sandboxes</strong> &mdash; one disposable microVM per proof, because running model-written code anywhere else is exactly the risk this tool exists to catch.</p>
-</footer>
+<aside class="drawer" id="drawer" hidden>
+  <header>
+    <h2>Sources</h2>
+    <button class="close" id="drawer-close" type="button" aria-label="Close">&times;</button>
+  </header>
+  <p class="drawer-note">The standards and documentation behind each verdict, found with Tavily while the case runs.</p>
+  <div id="citations"></div>
+</aside>
+
 <script src="/app.js"></script>
 </body>
 </html>
