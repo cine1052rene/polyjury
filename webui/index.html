@@ -29,9 +29,12 @@
                placeholder="https://github.com/owner/repo" required />
         <button class="primary" id="run-btn" type="submit">Verify</button>
       </div>
-      <p class="hint">Your own project, please. Polyjury reads the source; it never pushes anything back.</p>
+      <p class="hint">Your own project, please. Polyjury reads the source; it never pushes anything back.
+        A live verdict takes about two minutes &mdash; or
+        <button type="button" class="linky" id="example-btn">watch a recorded one</button>.</p>
     </form>
     <p class="error" id="error" hidden></p>
+    <p class="replay-note" id="replay-note" hidden>Recorded verdict on a real public repository, replayed at reading speed.</p>
   </section>
 
   <section class="stage" id="stage-collect" hidden>

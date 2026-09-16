@@ -8,6 +8,7 @@ LocalRunner exists so the pipeline can be developed before beta access is grante
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -58,21 +59,30 @@ class LocalRunner:
     def run(self, script: str) -> RunResult:
         if not script.strip():
             return RunResult("UNVERIFIED", "no proof script was written", self.name)
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "proof.py"
+        # Proof scripts write files and plant modules, so each one gets a throwaway copy of
+        # the repository - otherwise the next review reads the previous attack. Cleanup is
+        # best-effort: on Windows a file the script left open must not fail the whole run.
+        tmp = Path(tempfile.mkdtemp(prefix="polyjury-"))
+        try:
+            work = tmp / "repo"
+            shutil.copytree(self.root, work, ignore=shutil.ignore_patterns(".git", "__pycache__"),
+                            dirs_exist_ok=True)
+            path = tmp / "proof.py"
             path.write_text(script, encoding="utf-8")
             env = {k: v for k, v in os.environ.items()
-                   if k in {"PATH", "SYSTEMROOT", "TEMP", "TMP", "PYTHONPATH", "LANG"}}
+                   if k in {"PATH", "SYSTEMROOT", "TEMP", "TMP", "LANG"}}
             env["PYTHONIOENCODING"] = "utf-8"
-            env["PYTHONPATH"] = _import_roots(self.root, os.pathsep) + os.pathsep + env.get("PYTHONPATH", "")
+            env["PYTHONPATH"] = _import_roots(work, os.pathsep)
             try:
                 proc = subprocess.run([sys.executable, "-s", "-X", "utf8", str(path)],
-                                      cwd=self.root, env=env, capture_output=True,
+                                      cwd=work, env=env, capture_output=True,
                                       text=True, encoding="utf-8", errors="replace",
                                       timeout=RUN_TIMEOUT)
             except subprocess.TimeoutExpired:
                 return RunResult("UNVERIFIED", f"proof script timed out after {RUN_TIMEOUT}s", self.name)
             return _read_verdict(proc.stdout, proc.stderr, self.name)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 class SandboxRunner:

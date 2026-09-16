@@ -14,7 +14,7 @@ REVIEWERS = [
     "Qwen/Qwen3.5-397B-A17B",
     "openai/gpt-oss-120b",
 ]
-TIMEOUT = 120.0
+TIMEOUT = 90.0
 
 REVIEW_PROMPT = """You review code that an AI assistant wrote for someone who is not a professional developer and is about to publish it on the public internet.
 

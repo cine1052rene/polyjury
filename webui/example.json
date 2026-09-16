@@ -1,0 +1,222 @@
+{
+ "repo": {
+  "name": "tiangolo/fastapi-cli",
+  "files": [
+   "src/fastapi_cli/cli.py",
+   "src/fastapi_cli/utils/cli.py",
+   "src/fastapi_cli/discover.py",
+   "src/fastapi_cli/config.py",
+   "src/fastapi_cli/logging.py",
+   "src/fastapi_cli/exceptions.py",
+   "src/fastapi_cli/__main__.py",
+   "src/fastapi_cli/__init__.py",
+   "scripts/prepare_release.py",
+   "scripts/add_latest_release_date.py"
+  ]
+ },
+ "reviewers": [
+  "deepseek-ai/DeepSeek-V4-Pro",
+  "Qwen/Qwen3.5-397B-A17B",
+  "openai/gpt-oss-120b"
+ ],
+ "reviews": [
+  {
+   "model": "deepseek-ai/DeepSeek-V4-Pro",
+   "seconds": 5.33,
+   "repaired": true,
+   "error": "",
+   "findings": []
+  },
+  {
+   "model": "Qwen/Qwen3.5-397B-A17B",
+   "seconds": 12.93,
+   "repaired": false,
+   "error": "",
+   "findings": [
+    {
+     "severity": "high",
+     "what_breaks": "Attackers can forge X-Forwarded-For (and related) headers to appear as any IP address, bypassing IP-based access controls or logging in both development and production modes."
+    },
+    {
+     "severity": "high",
+     "what_breaks": "The CLI adds the current working directory or arbitrary paths to Python's module search path without validation. If an attacker can place a malicious module in those directories, it will be imported and executed, leading to remote code execution or import hijacking."
+    },
+    {
+     "severity": "med",
+     "what_breaks": "When an exception occurs, the logging configuration includes local variables in tracebacks, potentially leaking passwords, API keys, or other sensitive data to logs or error pages visible to users or attackers."
+    },
+    {
+     "severity": "low",
+     "what_breaks": "If the FASTAPI_PUBLIC_URL environment variable contains whitespace, trailing slashes, or an invalid URL, the CLI prints a malformed server address, which can confuse users or be leveraged for phishing‑style misdirection."
+    }
+   ]
+  },
+  {
+   "model": "openai/gpt-oss-120b",
+   "seconds": 13.17,
+   "repaired": false,
+   "error": "",
+   "findings": [
+    {
+     "severity": "high",
+     "what_breaks": "The CLI adds the current working directory or arbitrary paths to Python's module search path without validation. If an attacker can place a malicious module in those directories, it will be imported and executed, leading to remote code execution or import hijacking."
+    },
+    {
+     "severity": "med",
+     "what_breaks": "Providing a malformed date via the --date option raises a ValueError and halts the script, blocking the release automation process."
+    },
+    {
+     "severity": "med",
+     "what_breaks": "If a directory or file name contains characters invalid in Python identifiers (e.g., hyphens), the constructed import string is invalid and importlib.import_module raises a ValueError, causing the CLI to crash."
+    },
+    {
+     "severity": "low",
+     "what_breaks": "When release-notes.md is saved in an encoding other than UTF‑8, the script raises a UnicodeDecodeError and aborts, preventing the date from being added."
+    },
+    {
+     "severity": "low",
+     "what_breaks": "Each invocation of the CLI prepends the same directory to sys.path, leading to duplicate entries that can grow indefinitely and may cause the wrong module version to be imported."
+    },
+    {
+     "severity": "low",
+     "what_breaks": "If the FASTAPI_PUBLIC_URL environment variable contains whitespace, trailing slashes, or an invalid URL, the CLI prints a malformed server address, which can confuse users or be leveraged for phishing‑style misdirection."
+    }
+   ]
+  }
+ ],
+ "findings_total": 12,
+ "dropped": 0,
+ "claims": [
+  {
+   "title": "Proxy headers trusted without IP restriction allows client IP spoofing",
+   "file": "src/fastapi_cli/cli.py",
+   "where": "dev function and run function (proxy_headers=True default with forwarded_allow_ips=None)",
+   "severity": "high",
+   "what_breaks": "Attackers can forge X-Forwarded-For (and related) headers to appear as any IP address, bypassing IP-based access controls or logging in both development and production modes.",
+   "models": [
+    "Qwen/Qwen3.5-397B-A17B"
+   ],
+   "script": "import sys\nimport threading\nimport time\nimport json\nimport urllib.request\nimport urllib.error\nfrom contextlib import closing\n\ntry:\n    from fastapi import FastAPI, Request\n    import uvicorn\nexcept Exception as e:\n    print(f\"Failed to import required modules: {e}\")\n    print(\"VERDICT: INCONCLUSIVE\")\n    sys.exit(0)\n\n# Simple FastAPI app that returns the client host as seen by the server\napp = FastAPI()\n\n@app.get(\"/\")\nasync def read_client(request: Request):\n    client_host = request.client.host if request.client else None\n    return {\"client\": client_host}\n\ndef run_server(port):\n    # Run uvicorn with the same settings as the CLI defaults\n    uvicorn.run(\n        app,\n        host=\"127.0.0.1\",\n        port=port,\n        proxy_headers=True,\n        forwarded_allow_ips=None,\n        log_level=\"warning\",\n    )\n\ndef wait_for_port(port, timeout=5):\n    start = time.time()\n    while time.time() - start < timeout:\n        try:\n            with closing(urllib.request.urlopen(f\"http://127.0.0.1:{port}/\", timeout=1)):\n                return True\n        except Exception:\n            time.sleep(0.1)\n    return False\n\ndef main():\n    port = 8001  # choose a port likely free in the test environment\n    server_thread = threading.Thread(target=run_server, args=(port,), daemon=True)\n    server_thread.start()\n\n    if not wait_for_port(port):\n        print(\"Server did not start in time\")\n        print(\"VERDICT: INCONCLUSIVE\")\n        return\n\n    # Prepare request with forged X-Forwarded-For header\n    req = urllib.request.Request(\n        f\"http://127.0.0.1:{port}/\",\n        headers={\"X-Forwarded-For\": \"1.2.3.4\"}\n    )\n    try:\n        with urllib.request.urlopen(req, timeout=2) as resp:\n            data = resp.read().decode(\"utf-8\")\n            result = json.loads(data)\n            client = result.get(\"client\")\n            print(f\"Received response: {data}\")\n            print(f\"Client host reported by server: {client}\")\n            if client == \"1.2.3.4\":\n                print(\"Spoofing succeeded: server used the forged X-Forwarded-For header.\")\n                print(\"VERDICT: REPRODUCED\")\n            elif client == \"127.0.0.1\":\n                print(\"Spoofing failed: server used the actual peer IP, ignoring the forged header.\")\n                print(\"VERDICT: NOT_REPRODUCED\")\n            else:\n                print(f\"Unexpected client value: {client}\")\n                print(\"VERDICT: INCONCLUSIVE\")\n    except Exception as e:\n        print(f\"Request failed: {e}\")\n        print(\"VERDICT: INCONCLUSIVE\")\n\nif __name__ == \"__main__\":\n    main()",
+   "what_it_proves": "The script starts a FastAPI app with proxy_headers=True and forwarded_allow_ips=None (the defaults in the CLI dev/run commands), sends a request with a forged X-Forwarded-For header, and checks whether the app uses that header value as the client IP. If the reported client IP matches the forged value, the claim is reproduced; otherwise it is not.",
+   "proof_kind": "dynamic",
+   "verdict": "REPRODUCED",
+   "evidence": "Received response: {\"client\":\"1.2.3.4\"}\nClient host reported by server: 1.2.3.4\nSpoofing succeeded: server used the forged X-Forwarded-For header.\nVERDICT: REPRODUCED\n",
+   "runner": "local"
+  },
+  {
+   "title": "Unsafe sys.path modifications enable arbitrary code execution",
+   "file": "src/fastapi_cli/discover.py",
+   "where": "get_import_data and get_import_data_from_import_string functions (sys.path.insert(0, ...))",
+   "severity": "high",
+   "what_breaks": "The CLI adds the current working directory or arbitrary paths to Python's module search path without validation. If an attacker can place a malicious module in those directories, it will be imported and executed, leading to remote code execution or import hijacking.",
+   "models": [
+    "Qwen/Qwen3.5-397B-A17B",
+    "openai/gpt-oss-120b"
+   ],
+   "script": "import sys\nimport os\nimport traceback\n\ntry:\n    # Attempt to import the function from the package\n    from fastapi_cli.discover import get_import_data_from_import_string\nexcept Exception as e:\n    print(f\"Failed to import get_import_data_from_import_string: {e}\")\n    sys.exit(1)\n\n# Choose a unique module name to avoid collisions\nmodule_name = \"evil_test_mod_987654321\"\nmodule_file = f\"{module_name}.py\"\npwn_file = \"pwned_by_evil.txt\"\n\n# Write a malicious module that creates a file when imported\nmodule_code = f'''# {{autogenerated}} malicious module\n# This code runs upon import\nwith open(\"{pwn_file}\", \"w\") as f:\n    f.write(\"arbitrary code execution successful\")\n'''\ntry:\n    with open(module_file, \"w\") as f:\n        f.write(module_code)\nexcept Exception as e:\n    print(f\"Failed to write malicious module: {e}\")\n    sys.exit(1)\n\n# Ensure the current working directory is on sys.path (it will be inserted at position 0)\n# Call the function; this should import our module and execute its top-level code\ntry:\n    get_import_data_from_import_string(f\"{module_name}:dummy\", from_pyproject=False)\nexcept Exception as e:\n    # Even if the function raises (e.g., missing attribute), the import already happened\n    pass\n\n# Check if the malicious code ran by looking for the expected file\nevidence = []\nif os.path.exists(pwn_file):\n    try:\n        with open(pwn_file, \"r\") as f:\n            content = f.read()\n        evidence.append(f\"File {pwn_file} created with content: {repr(content)}\")\n    except Exception as e:\n        evidence.append(f\"File {pwn_file} exists but could not be read: {e}\")\nelse:\n    evidence.append(f\"File {pwn_file} was not created.\")\n\n# Also check if the module was loaded in sys.modules\nif module_name in sys.modules:\n    evidence.append(f\"Module {module_name} found in sys.modules.\")\nelse:\n    evidence.append(f\"Module {module_name} not found in sys.modules (may have failed to load).\")\n\n# Print evidence\nfor line in evidence:\n    print(line)\n\n# Determine verdict\nif os.path.exists(pwn_file):\n    print(\"VERDICT: REPRODUCED\")\nelse:\n    print(\"VERDICT: NOT_REPRODUCED\")",
+   "what_it_proves": "Demonstrates that get_import_data_from_import_string inserts the current working directory into sys.path and imports a specified module, allowing arbitrary code execution if a malicious module is present.",
+   "proof_kind": "dynamic",
+   "verdict": "NOT_REPRODUCED",
+   "evidence": "File pwned_by_evil.txt was not created.\nModule evil_test_mod_987654321 not found in sys.modules (may have failed to load).\nVERDICT: NOT_REPRODUCED\n",
+   "runner": "local"
+  },
+  {
+   "title": "Error tracebacks expose local variables including secrets",
+   "file": "src/fastapi_cli/logging.py",
+   "where": "setup_logging function",
+   "severity": "med",
+   "what_breaks": "When an exception occurs, the logging configuration includes local variables in tracebacks, potentially leaking passwords, API keys, or other sensitive data to logs or error pages visible to users or attackers.",
+   "models": [
+    "Qwen/Qwen3.5-397B-A17B"
+   ],
+   "script": "import sys\nimport io\nimport contextlib\nimport traceback\n\ntry:\n    from src.fastapi_cli.logging import setup_logging\n    import logging\nexcept Exception as e:\n    print(f\"Failed to import setup_logging: {e}\")\n    print(\"VERDICT: INCONCLUSIVE\")\n    sys.exit(0)\n\ntry:\n    # Configure logging as the CLI does\n    setup_logging(level=logging.DEBUG)\n    logger = logging.getLogger(\"fastapi_cli\")\n\n    # Secret that should not be leaked\n    secret_value = \"super_secret_api_key_12345\"\n\n    # Function that holds the secret and raises\n    def problematic_function():\n        secret = secret_value  # local variable\n        # Cause an exception\n        undefined_variable  # NameError to generate traceback\n\n    # Capture stderr output from logging\n    stderr_capture = io.StringIO()\n    with contextlib.redirect_stderr(stderr_capture):\n        try:\n            problematic_function()\n        except Exception:\n            logger.exception(\"An error occurred during processing\")\n\n    output = stderr_capture.getvalue()\n\n    # Check if the secret appears in the captured output\n    secret_exposed = secret_value in output\n\n    # Print evidence\n    print(\"Captured log output (first 500 chars):\")\n    print(output[:500])\n    print(f\"\\nSecret found in output: {secret_exposed}\")\n\n    if secret_exposed:\n        print(\"VERDICT: REPRODUCED\")\n    else:\n        print(\"VERDICT: NOT_REPRODUCED\")\n\nexcept Exception as e:\n    print(f\"Test encountered an error: {e}\")\n    traceback.print_exc()\n    print(\"VERDICT: INCONCLUSIVE\")",
+   "what_it_proves": "The script will trigger an exception with a secret local variable, capture the logging output from the fastapi_cli logger configured by setup_logging, and check if the secret appears in the traceback output, thereby confirming whether locals are exposed.",
+   "proof_kind": "dynamic",
+   "verdict": "NOT_REPRODUCED",
+   "evidence": "ERROR    An error occurred during processing                                   \n         ┌──────────────── Traceback (most recent call last) ─────────────────┐\n         │ C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\polyjury-l1qp93hh\\pr │\n         │ oof.py:32 in <module>                                              │\n         │                                                                    │\n         │   29 │   stderr_capture = io.StringIO()                            │\n         │   30 │   with contextlib.redirect_stderr(stderr_capture):          │\n         │   31 │   │   try:                                                  │\n         │ > 32 │   │   │   problematic_function()                            │\n         │   33 │   │   except Exception:                                     │\n         │   34 │   │   │   logger.exception(\"An error occurred during proces │\n         │   35                                                               │\n         │                                                                    │\n         │ ┌──────────────────────────── locals ────────────────────────────┐ │\n         │ │     contextlib = <module 'contextlib' from                     │ │\n         │ │                  'C:\\\\Users\\\\cine1\\\\AppData\\\\Local\\\\Programs\\… │ │\n         │ │             io = <module 'io' (frozen)>                        │ │\n         │ │         logger = <Logger fastapi_cli (DEBUG)>                  │ │\n         │ │        logging = <module 'logging' from                        │ │\n         │ │                  'C:\\\\Users\\\\cine1\\\\AppData\\\\Local\\\\Programs\\… │ │\n         │ │   secret_value = 'super_secret_api_key_12345'                  │ │\n         │ │ stderr_capture = <_io.StringIO object at 0x000002DC94D48040>   │ │\n         │ │            sys = <module 'sys' (built-in)>                     │ │\n         │ │      traceback = <module 'traceback' from                      │ │\n         │ │                  'C:\\\\Users\\\\cine1\\\\AppData\\\\Local\\\\Programs\\… │ │\n         │ └────────────────────────────────────────────────────────────────┘ │\n         │                                                                    │\n         │ C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\polyjury-l1qp93hh\\pr │\n         │ oof.py:26 in problematic_function                                  │\n         │                                                                    │\n         │   23 │   def problematic_function():                               │\n         │   24 │   │   secret = secret_value  # local variable               │\n         │   25 │   │   # Cause an exception                                  │\n         │ > 26 │   │   undefined_variable  # NameError to generate traceback │\n         │   27 │                                                             │\n         │   28 │   # Capture stderr output from logging                      │\n         │   29 │   stderr_capture = io.StringIO()                            │\n         │                                                                    │\n         │ ┌─────────────── locals ────────────────┐                          │\n         │ │ secret = 'super_secret_api_key_12345' │                          │\n         │ └───────────────────────────────────────┘                          │\n         └────────────────────────────────────────────────────────────────────┘\n         NameError: name 'undefined_variable' is not defined                   \nCaptured log output (first 500 chars):\n\n\nSecret found in output: False\nVERDICT: NOT_REPRODUCED\n",
+   "runner": "local"
+  },
+  {
+   "title": "Release preparation script crashes on invalid date string",
+   "file": "scripts/prepare_release.py",
+   "where": "prepare() function, date.fromisoformat(release_date)",
+   "severity": "med",
+   "what_breaks": "Providing a malformed date via the --date option raises a ValueError and halts the script, blocking the release automation process.",
+   "models": [
+    "openai/gpt-oss-120b"
+   ],
+   "script": "import os\nimport subprocess\nimport sys\nfrom pathlib import Path\n\ndef main():\n    # Create a temporary directory for test files under the current working directory\n    test_dir = Path.cwd() / \"test_prepare_release\"\n    test_dir.mkdir(exist_ok=True)\n    \n    version_file = test_dir / \"VERSION.py\"\n    release_notes_file = test_dir / \"RELEASE_NOTES.md\"\n    \n    # Write a valid version file\n    version_file.write_text('__version__ = \"0.0.1\"\\n')\n    \n    # Write a release notes file that satisfies the script's expectations\n    # Must start with \"# Release Notes\\n\\n\" and then \"## Latest Changes\\n\\n\"\n    release_notes_content = \"# Release Notes\\n\\n## Latest Changes\\n\\nInitial content.\\n\"\n    release_notes_file.write_text(release_notes_content)\n    \n    # Path to the script\n    script_path = Path.cwd() / \"scripts\" / \"prepare_release.py\"\n    \n    # Run the prepare command with an invalid date\n    cmd = [\n        sys.executable,\n        str(script_path),\n        \"prepare\",\n        \"patch\",  # bump type\n        f\"--version-file={version_file}\",\n        f\"--release-notes-file={release_notes_file}\",\n        \"--date=not-a-date\",  # invalid date string\n    ]\n    \n    try:\n        result = subprocess.run(\n            cmd,\n            capture_output=True,\n            text=True,\n            timeout=10,\n        )\n    except subprocess.TimeoutExpired as e:\n        print(f\"ERROR: Script timed out: {e}\")\n        print(\"VERDICT: INCONCLUSIVE\")\n        return\n    \n    # Print outputs for evidence\n    print(\"STDOUT:\")\n    print(result.stdout)\n    print(\"STDERR:\")\n    print(result.stderr)\n    print(f\"Return code: {result.returncode}\")\n    \n    # Check if the script crashed with ValueError\n    if result.returncode != 0 and \"ValueError\" in result.stderr:\n        print(\"VERDICT: REPRODUCED\")\n    else:\n        print(\"VERDICT: NOT_REPRODUCED\")\n\nif __name__ == \"__main__\":\n    main()",
+   "what_it_proves": "Running the release preparation script with an invalid date string via the --date option causes a ValueError to be raised, which is not caught, leading to a non-zero exit and traceback output.",
+   "proof_kind": "dynamic",
+   "verdict": "REPRODUCED",
+   "evidence": "STDOUT:\n\nSTDERR:\n┌───────────────────── Traceback (most recent call last) ─────────────────────┐\n│ C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\polyjury-3jc68xpg\\repo\\script │\n│ s\\prepare_release.py:144 in prepare                                         │\n│                                                                             │\n│   141 │   │   ),                                                            │\n│   142 │   ] = date.today().isoformat(),                                     │\n│   143 ) -> None:                                                            │\n│ > 144 │   parsed_release_date = date.fromisoformat(release_date or          │\n│       date.today().isoformat())                                             │\n│   145 │                                                                     │\n│   146 │   version_file_content = version_file.read_text()                   │\n│   147 │   release_notes_content = release_notes_file.read_text()            │\n└─────────────────────────────────────────────────────────────────────────────┘\nValueError: Invalid isoformat string: 'not-a-date'\n\nReturn code: 1\nVERDICT: REPRODUCED\n",
+   "runner": "local"
+  },
+  {
+   "title": "Module import string generation fails on non‑identifier path components",
+   "file": "src/fastapi_cli/discover.py",
+   "where": "get_module_data_from_path function, module_str generation",
+   "severity": "med",
+   "what_breaks": "If a directory or file name contains characters invalid in Python identifiers (e.g., hyphens), the constructed import string is invalid and importlib.import_module raises a ValueError, causing the CLI to crash.",
+   "models": [
+    "openai/gpt-oss-120b"
+   ],
+   "script": "import sys\nimport os\nimport shutil\nfrom pathlib import Path\n\ntry:\n    from fastapi_cli.discover import get_module_data_from_path\nexcept ImportError as e:\n    print(f\"Failed to import get_module_data_from_path: {e}\")\n    print(\"VERDICT: INCONCLUSIVE\")\n    sys.exit(0)\n\ntry:\n    # Create a temporary directory structure with an invalid identifier (hyphen)\n    test_base = Path(\"test_temp_invalid_id\")\n    test_base.mkdir(exist_ok=True)\n    invalid_dir = test_base / \"my-app\"  # hyphen makes this an invalid Python identifier\n    invalid_dir.mkdir(exist_ok=True)\n    (invalid_dir / \"__init__.py\").touch()  # make it a package\n    \n    # Get module data from the invalid directory path\n    mod_data = get_module_data_from_path(invalid_dir)\n    module_str = mod_data.module_import_str\n    print(f\"Generated module string: '{module_str}'\")\n    \n    # Check if each part of the module string is a valid Python identifier\n    parts = module_str.split('.')\n    all_valid = True\n    for part in parts:\n        if not part.isidentifier():\n            print(f\"Part '{part}' is not a valid Python identifier\")\n            all_valid = False\n    \n    if not all_valid:\n        print(\"VERDICT: REPRODUCED\")\n    else:\n        print(\"VERDICT: NOT_REPRODUCED\")\n        \n    # Clean up\n    shutil.rmtree(test_base)\n        \nexcept Exception as e:\n    print(f\"Unexpected error during test: {type(e).__name__}: {e}\")\n    print(\"VERDICT: INCONCLUSIVE\")\n    # Attempt cleanup\n    if 'test_base' in locals() and test_base.exists():\n        shutil.rmtree(test_base, ignore_errors=True)",
+   "what_it_proves": "KIND: Unit",
+   "proof_kind": "dynamic",
+   "verdict": "REPRODUCED",
+   "evidence": "Generated module string: 'my-app'\nPart 'my-app' is not a valid Python identifier\nVERDICT: REPRODUCED\n",
+   "runner": "local"
+  },
+  {
+   "title": "Release notes script fails on non‑UTF‑8 encoded files",
+   "file": "scripts/add_latest_release_date.py",
+   "where": "open(RELEASE_NOTES_FILE) without specifying encoding",
+   "severity": "low",
+   "what_breaks": "When release-notes.md is saved in an encoding other than UTF‑8, the script raises a UnicodeDecodeError and aborts, preventing the date from being added.",
+   "models": [
+    "openai/gpt-oss-120b"
+   ],
+   "script": "import sys\nimport tempfile\nimport os\n\ndef test():\n    try:\n        import scripts.add_latest_release_date as release_script\n    except Exception as e:\n        print(f\"Failed to import script: {e}\")\n        return \"INCONCLUSIVE\"\n\n    # Create a temporary file with invalid UTF-8 content\n    with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.md') as f:\n        # Write a line that looks like a release header but with a byte that is not valid UTF-8\n        f.write(b'## 1.0.0 \\xf3\\n')  # 0xF3 is 'ó' in Latin-1, invalid UTF-8 alone\n        temp_path = f.name\n\n    try:\n        # Replace the constant used by the script\n        original_path = release_script.RELEASE_NOTES_FILE\n        release_script.RELEASE_NOTES_FILE = temp_path\n\n        try:\n            release_script.main()\n        except UnicodeDecodeError as e:\n            print(f\"UnicodeDecodeError caught: {e.reason} at position {e.start}\")\n            return \"REPRODUCED\"\n        except SystemExit as e:\n            # Normal exit (e.g., header found or not) – no decoding error\n            print(f\"Script exited normally with code {e.code}\")\n            return \"NOT_REPRODUCED\"\n        except Exception as e:\n            print(f\"Unexpected exception: {type(e).__name__}: {e}\")\n            return \"NOT_REPRODUCED\"\n    finally:\n        # Restore original constant and clean up temp file\n        release_script.RELEASE_NOTES_FILE = original_path\n        try:\n            os.unlink(temp_path)\n        except OSError:\n            pass\n\nif __name__ == \"__main__\":\n    verdict = test()\n    print(f\"VERDICT: {verdict}\")",
+   "what_it_proves": "The script will raise a UnicodeDecodeError when trying to read a release-notes.md file that contains non‑UTF‑8 bytes, confirming the claim.",
+   "proof_kind": "dynamic",
+   "verdict": "REPRODUCED",
+   "evidence": "UnicodeDecodeError caught: invalid continuation byte at position 9\nVERDICT: REPRODUCED\n",
+   "runner": "local"
+  },
+  {
+   "title": "Repeated sys.path insertions cause path pollution and duplicate entries",
+   "file": "src/fastapi_cli/discover.py",
+   "where": "sys.path.insert(0, str(mod_data.extra_sys_path)) in get_import_data",
+   "severity": "low",
+   "what_breaks": "Each invocation of the CLI prepends the same directory to sys.path, leading to duplicate entries that can grow indefinitely and may cause the wrong module version to be imported.",
+   "models": [
+    "openai/gpt-oss-120b"
+   ],
+   "script": "import sys\nimport tempfile\nfrom pathlib import Path\n\ntry:\n    # Create a temporary directory for our test app\n    tmp_dir = Path(\"tmp_test_path_pollution\")\n    tmp_dir.mkdir(exist_ok=True)\n    app_file = tmp_dir / \"app.py\"\n    app_file.write_text(\"\"\"\nfrom fastapi import FastAPI\napp = FastAPI()\n\"\"\")\n    \n    # Import the function we want to test\n    from fastapi_cli.discover import get_import_data\n    \n    # Record initial sys.path state\n    initial_path = list(sys.path)\n    \n    # First invocation\n    import_data1 = get_import_data(path=app_file)\n    after_first = list(sys.path)\n    \n    # Second invocation with the same path\n    import_data2 = get_import_data(path=app_file)\n    after_second = list(sys.path)\n    \n    # The path that should have been inserted twice\n    inserted_path = str(import_data1.module_data.extra_sys_path)\n    \n    # Count occurrences in each state\n    count_initial = initial_path.count(inserted_path)\n    count_after_first = after_first.count(inserted_path)\n    count_after_second = after_second.count(inserted_path)\n    \n    # Check if we got exactly two additional insertions\n    if count_after_first == count_initial + 1 and count_after_second == count_initial + 2:\n        print(f\"Inserted path: {inserted_path}\")\n        print(f\"Initial count: {count_initial}\")\n        print(f\"After first: {count_after_first}\")\n        print(f\"After second: {count_after_second}\")\n        print(\"VERDICT: REPRODUCED\")\n    else:\n        print(f\"Inserted path: {inserted_path}\")\n        print(f\"Initial count: {count_initial}\")\n        print(f\"After first: {count_after_first}\")\n        print(f\"After second: {count_after_second}\")\n        print(\"VERDICT: NOT_REPRODUCED\")\n        \nexcept Exception as e:\n    print(f\"Error during check: {e}\")\n    print(\"VERDICT: INCONCLUSIVE\")",
+   "what_it_proves": "KIND: direct",
+   "proof_kind": "dynamic",
+   "verdict": "REPRODUCED",
+   "evidence": "Inserted path: C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\polyjury-8z7y0iif\\repo\\tmp_test_path_pollution\nInitial count: 0\nAfter first: 1\nAfter second: 2\nVERDICT: REPRODUCED\n",
+   "runner": "local"
+  },
+  {
+   "title": "Public URL formatting issues display incorrect or confusing server addresses",
+   "file": "src/fastapi_cli/cli.py",
+   "where": "_run function – public_url handling (url = public_url.rstrip('/') if public_url else f'http://{host}:{port}')",
+   "severity": "low",
+   "what_breaks": "If the FASTAPI_PUBLIC_URL environment variable contains whitespace, trailing slashes, or an invalid URL, the CLI prints a malformed server address, which can confuse users or be leveraged for phishing‑style misdirection.",
+   "models": [
+    "Qwen/Qwen3.5-397B-A17B",
+    "openai/gpt-oss-120b"
+   ],
+   "script": "import os\nimport tempfile\nimport sys\ntry:\n    from typer.testing import CliRunner\n    from fastapi_cli.cli import app\nexcept ImportError as e:\n    print(f\"Failed to import required modules: {e}\")\n    print(\"VERDICT: INCONCLUSIVE\")\n    sys.exit(0)\n\n# Create a temporary file with a minimal FastAPI app\ntemp_file_path = None\ntry:\n    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:\n        f.write('''from fastapi import FastAPI\\napp = FastAPI()\\n\\n@app.get(\"/\")\\ndef read_root():\\n    return {\"Hello\": \"World\"}''')\n        temp_file_path = f.name\n\n    # Set up environment variable with problematic public URL\n    env = os.environ.copy()\n    env[\"FASTAPI_PUBLIC_URL\"] = \" http://example.com/ \"  # leading space, trailing space, trailing slash\n\n    # Initialize CLI runner\n    runner = CliRunner()\n\n    # Invoke the 'dev' command with an invalid host to trigger failure after URL printing\n    result = runner.invoke(\n        app,\n        [\"dev\", temp_file_path, \"--host\", \"999.999.999.999\"],  # invalid host to cause uvicorn error\n        env=env,\n        catch_exceptions=False  # let exceptions propagate so we see output\n    )\n\n    # Combine stdout and stderr for analysis\n    output = result.stdout + result.stderr\n\n    # Find the line containing the server start message\n    server_line = None\n    for line in output.splitlines():\n        if \"Server started at\" in line:\n            server_line = line\n            break\n\n    if server_line is None:\n        print(\"Could not find the server started line in the CLI output.\")\n        print(\"Full output:\")\n        print(output)\n        print(\"VERDICT: INCONCLUSIVE\")\n        sys.exit(0)\n\n    # Extract the part after \"Server started at\"\n    try:\n        after_server = server_line.split(\"Server started at\")[1]\n    except IndexError:\n        print(f\"Failed to extract URL from server line: {server_line}\")\n        print(\"VERDICT: INCONCLUSIVE\")\n        sys.exit(0)\n\n    # Check if the extracted part has leading or trailing whitespace\n    if after_server != after_server.strip():\n        print(f\"Reproduced issue: malformed server address due to whitespace in FASTAPI_PUBLIC_URL\")\n        print(f\"Environment variable FASTAPI_PUBLIC_URL was set to: {repr(os.environ.get('FASTAPI_PUBLIC_URL'))}\")\n        print(f\"Extracted URL from output: {repr(after_server)}\")\n        print(f\"URL has leading whitespace: {after_server.startswith(' ')}\")\n        print(f\"URL has trailing whitespace: {after_server.endswith(' ')}\")\n        print(\"VERDICT: REPRODUCED\")\n    else:\n        print(f\"Server line found: {server_line}\")\n        print(f\"Extracted URL: {repr(after_server)}\")\n        print(\"The extracted URL does not contain leading/trailing whitespace.\")\n        print(\"VERDICT: NOT_REPRODUCED\")\n\nexcept Exception as e:\n    print(f\"An unexpected error occurred during the test: {e}\")\n    print(\"VERDICT: INCONCLUSIVE\")\nfinally:\n    # Do not clean up temporary file as per instructions\n    pass",
+   "what_it_proves": "KIND: SEMANTIC",
+   "proof_kind": "dynamic",
+   "verdict": "REPRODUCED",
+   "evidence": "Reproduced issue: malformed server address due to whitespace in FASTAPI_PUBLIC_URL\nEnvironment variable FASTAPI_PUBLIC_URL was set to: None\nExtracted URL from output: '  http://example.com/ '\nURL has leading whitespace: True\nURL has trailing whitespace: True\nVERDICT: REPRODUCED\n",
+   "runner": "local"
+  }
+ ],
+ "fix_prompt": "Fix these defects in my code. Each one was reproduced by running a script, so do not argue that it cannot happen. Keep the behaviour of everything else.\n\n1. Proxy headers trusted without IP restriction allows client IP spoofing\n   file: src/fastapi_cli/cli.py (dev function and run function (proxy_headers=True default with forwarded_allow_ips=None))\n   impact: Attackers can forge X-Forwarded-For (and related) headers to appear as any IP address, bypassing IP-based access controls or logging in both development and production modes.\n   proof: The script starts a FastAPI app with proxy_headers=True and forwarded_allow_ips=None (the defaults in the CLI dev/run commands), sends a request with a forged X-Forwarded-For header, and checks whether the app uses that header value as the client IP. If the reported client IP matches the forged value, the claim is reproduced; otherwise it is not.\n\n2. Release preparation script crashes on invalid date string\n   file: scripts/prepare_release.py (prepare() function, date.fromisoformat(release_date))\n   impact: Providing a malformed date via the --date option raises a ValueError and halts the script, blocking the release automation process.\n   proof: Running the release preparation script with an invalid date string via the --date option causes a ValueError to be raised, which is not caught, leading to a non-zero exit and traceback output.\n\n3. Module import string generation fails on non‑identifier path components\n   file: src/fastapi_cli/discover.py (get_module_data_from_path function, module_str generation)\n   impact: If a directory or file name contains characters invalid in Python identifiers (e.g., hyphens), the constructed import string is invalid and importlib.import_module raises a ValueError, causing the CLI to crash.\n   proof: KIND: Unit\n\n4. Release notes script fails on non‑UTF‑8 encoded files\n   file: scripts/add_latest_release_date.py (open(RELEASE_NOTES_FILE) without specifying encoding)\n   impact: When release-notes.md is saved in an encoding other than UTF‑8, the script raises a UnicodeDecodeError and aborts, preventing the date from being added.\n   proof: The script will raise a UnicodeDecodeError when trying to read a release-notes.md file that contains non‑UTF‑8 bytes, confirming the claim.\n\n5. Repeated sys.path insertions cause path pollution and duplicate entries\n   file: src/fastapi_cli/discover.py (sys.path.insert(0, str(mod_data.extra_sys_path)) in get_import_data)\n   impact: Each invocation of the CLI prepends the same directory to sys.path, leading to duplicate entries that can grow indefinitely and may cause the wrong module version to be imported.\n   proof: KIND: direct\n\n6. Public URL formatting issues display incorrect or confusing server addresses\n   file: src/fastapi_cli/cli.py (_run function – public_url handling (url = public_url.rstrip('/') if public_url else f'http://{host}:{port}'))\n   impact: If the FASTAPI_PUBLIC_URL environment variable contains whitespace, trailing slashes, or an invalid URL, the CLI prints a malformed server address, which can confuse users or be leveraged for phishing‑style misdirection.\n   proof: KIND: SEMANTIC\n\nAfter each fix, tell me in one line how I can check it myself."
+}

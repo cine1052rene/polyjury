@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 
 from engine.llm import chat, parse_json
 
-CHAIR_TIMEOUT = 240.0
+CHAIR_TIMEOUT = 150.0
 
 MERGE_PROMPT = """You chair a code review panel. Several models reviewed the SAME code independently and may describe the same problem in different words, or be plain wrong.
 
@@ -36,6 +36,8 @@ Rules:
 - Standard library plus whatever the repository already imports. No network calls, no writes
   outside the working directory, no sleep longer than 2 seconds.
 - Put the whole check inside try/except so it can never die without answering.
+- Do not clean up temporary files or directories. The environment is disposable, and a failed
+  cleanup has already wrecked otherwise good proofs.
 - The repository root is on sys.path, and so are its src/, app/ and lib/ folders if they exist.
   Import the package by its real name; if the import fails, that is an INCONCLUSIVE run, not a disproof.
 - The LAST line you print must be exactly one of:
@@ -98,6 +100,11 @@ def _write_proof(claim: Claim, context: str) -> Claim:
         raw, _ = chat(PROOF_PROMPT, task[:90000], think=True, max_tokens=9000,
                       temperature=0.1, timeout=CHAIR_TIMEOUT)
         block = SCRIPT_RE.search(raw)
+        if not block:
+            # Thinking mode sometimes spends the whole budget before the code fence.
+            raw, _ = chat(PROOF_PROMPT, task[:90000], think=False, max_tokens=6000,
+                          temperature=0.1, timeout=CHAIR_TIMEOUT)
+            block = SCRIPT_RE.search(raw)
         claim.script = block.group(1).strip() if block else ""
         proves = PROVES_RE.search(raw)
         claim.what_it_proves = proves.group(1).strip() if proves else ""

@@ -3,25 +3,27 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
 import tempfile
 from pathlib import Path
 
 from polyjury import chair, collect, panel, runner
 
 CACHE = Path(os.environ.get("POLYJURY_CACHE", Path(tempfile.gettempdir()) / "polyjury-cache"))
-ALLOW_LOCAL = os.environ.get("POLYJURY_ALLOW_LOCAL_EXEC", "") == "1"
 
 
-def repo_cache_dir(target: str) -> Path:
-    key = hashlib.sha256(target.strip().lower().encode()).hexdigest()[:16]
+
+def repo_cache_dir(target: str, bucket: str = "") -> Path:
+    """A fresh bucket means a fresh copy: a checkout that proofs have touched is never reused."""
+    key = hashlib.sha256((target.strip().lower() + "|" + bucket).encode()).hexdigest()[:16]
     return CACHE / key
 
 
-def get_repo(target: str) -> collect.Repo:
-    """Download once per target, then reuse the copy on disk."""
+def get_repo(target: str, bucket: str = "") -> collect.Repo:
+    """Download once per (target, bucket), then reuse that copy on disk."""
     if "github.com" not in target:
         return collect.from_path(target)
-    home = repo_cache_dir(target)
+    home = repo_cache_dir(target, bucket or time.strftime("%Y%m%d%H"))
     src = home / "src"
     if src.is_dir():
         try:
@@ -49,7 +51,7 @@ def prove(claim: chair.Claim, bundle: str, repo: collect.Repo) -> chair.Claim:
         claim.verdict, claim.runner = "UNVERIFIED", "none"
         return claim
     try:
-        backend = runner.pick(repo.root, repo.files, allow_local=ALLOW_LOCAL)
+        backend = runner.pick(repo.root, repo.files, allow_local=os.environ.get("POLYJURY_ALLOW_LOCAL_EXEC", "") == "1")
     except RuntimeError as exc:
         claim.verdict, claim.evidence, claim.runner = "UNVERIFIED", str(exc), "none"
         return claim

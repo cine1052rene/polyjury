@@ -44,4 +44,4 @@ TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "").strip()
 
 # --- 기타 -------------------------------------------------------------------
 REQUEST_TIMEOUT = float(os.environ.get("NEBIUS_TIMEOUT", "120"))
-MAX_RETRIES = int(os.environ.get("NEBIUS_MAX_RETRIES", "2"))
+MAX_RETRIES = int(os.environ.get("NEBIUS_MAX_RETRIES", "1"))

@@ -29,7 +29,7 @@ function fail(message) {
 
 function renderCollected(repo) {
   $("collect-note").textContent =
-    `${repo.name} — ${repo.files.length} files the panel will read.`;
+    `${repo.name} — ${repo.files.length} files the jury will read.`;
   $("files").innerHTML = repo.files.map((f) => `<li>${f}</li>`).join("");
   show("stage-collect");
 }
@@ -52,7 +52,7 @@ function renderReview(model, result) {
   }
   card.classList.add("done");
   card.querySelector(".meta").textContent =
-    `${result.findings.length} findings in ${result.seconds}s${result.repaired ? " (answer normalised)" : ""}`;
+    `${result.findings.length} finding${result.findings.length === 1 ? "" : "s"} in ${result.seconds}s${result.repaired ? " (answer normalised)" : ""}`;
   const list = document.createElement("ul");
   list.innerHTML = result.findings
     .map((f) => `<li><b>${(f.severity || "").toUpperCase()}</b> ${f.what_breaks || ""}</li>`)
@@ -87,12 +87,14 @@ function renderVerdict(index, claim) {
       : label[claim.verdict] || claim.verdict;
   if (claim.verdict === "REPRODUCED") $(`c-${index}`).classList.add("reproduced");
   const box = $(`proof-${index}`);
+  const safe = (t) => (t || "").replace(/[<>]/g, "");
   box.innerHTML = `
     <details>
       <summary>What the run showed${claim.runner ? " (" + claim.runner + ")" : ""}</summary>
-      <p class="why">${claim.what_it_proves || ""}</p>
-      <pre>${(claim.evidence || "no output").replace(/[<>]/g, "")}</pre>
-    </details>`;
+      <p class="why">${safe(claim.what_it_proves)}</p>
+      <pre>${safe(claim.evidence) || "no output"}</pre>
+    </details>
+    ${claim.script ? `<details><summary>The proof Nemotron wrote</summary><pre>${safe(claim.script)}</pre></details>` : ""}`;
 }
 
 async function run(target) {
@@ -152,6 +154,56 @@ async function run(target) {
   $("fix-prompt").textContent = prompt || "Nothing was confirmed — there is nothing to fix.";
   $("copy-btn").hidden = !prompt;
 }
+
+async function replay(path) {
+  const data = await fetch(path).then((r) => r.json());
+  REVIEWERS = data.reviewers;
+  $("replay-note").hidden = false;
+  renderCollected(data.repo);
+  show("stage-panel");
+  const panel = $("panel");
+  panel.innerHTML = "";
+  REVIEWERS.forEach((m) => panel.appendChild(modelCard(m)));
+  for (const r of data.reviews) {
+    await new Promise((f) => setTimeout(f, 650));
+    renderReview(r.model, r);
+  }
+  await new Promise((f) => setTimeout(f, 700));
+  show("stage-chair");
+  $("chair-note").textContent =
+    `${data.findings_total} raw findings from the jury became ${data.claims.length} claims` +
+    (data.dropped ? `, ${data.dropped} dropped as unverifiable.` : ".");
+  show("stage-proof");
+  const list = $("claims");
+  list.innerHTML = "";
+  data.claims.forEach((c, i) => list.appendChild(claimCard(c, i)));
+  for (let i = 0; i < data.claims.length; i += 1) {
+    await new Promise((f) => setTimeout(f, 800));
+    renderVerdict(i, data.claims[i]);
+  }
+  const confirmed = data.claims.filter((c) => c.verdict === "REPRODUCED");
+  const ran = confirmed.filter((c) => c.proof_kind === "dynamic");
+  show("stage-done");
+  $("score").innerHTML =
+    `${data.findings_total} findings from ${REVIEWERS.length} jurors became ${data.claims.length} claims, ` +
+    `and <b>${ran.length} were reproduced by actually running the code</b>` +
+    `${confirmed.length > ran.length ? `, ${confirmed.length - ran.length} supported by reading it` : ""}. ` +
+    `${data.claims.length - confirmed.length} did not survive.`;
+  $("fix-prompt").textContent = data.fix_prompt || "";
+  $("copy-btn").hidden = !data.fix_prompt;
+}
+
+$("example-btn").addEventListener("click", async () => {
+  const btn = $("example-btn");
+  btn.disabled = true;
+  try {
+    await replay("/example.json");
+  } catch (err) {
+    fail(err.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 $("run-form").addEventListener("submit", async (event) => {
   event.preventDefault();
