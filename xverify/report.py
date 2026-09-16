@@ -6,6 +6,13 @@ from xverify.chair import Claim
 MARK = {"REPRODUCED": "CONFIRMED", "NOT_REPRODUCED": "FALSE ALARM", "UNVERIFIED": "NEEDS A HUMAN"}
 
 
+def label(claim) -> str:
+    """A claim checked by reading the source is not the same as one that was run."""
+    if claim.verdict != "REPRODUCED":
+        return MARK.get(claim.verdict, claim.verdict)
+    return "CONFIRMED — ran it" if claim.proof_kind == "dynamic" else "LIKELY — read the code"
+
+
 def text_report(repo_name: str, claims: list[Claim], panel: dict) -> str:
     confirmed = [c for c in claims if c.verdict == "REPRODUCED"]
     refuted = [c for c in claims if c.verdict == "NOT_REPRODUCED"]
@@ -18,6 +25,9 @@ def text_report(repo_name: str, claims: list[Claim], panel: dict) -> str:
         f"**{len(confirmed)} proved by running code**.",
         "",
     ]
+    ran = [c for c in confirmed if c.proof_kind == "dynamic"]
+    lines[2] = lines[2].replace(f"**{len(confirmed)} proved by running code**",
+                                f"**{len(ran)} reproduced by running code**, {len(confirmed) - len(ran)} supported by reading it")
     for title, group in (("Confirmed — fix these", confirmed),
                          ("False alarms — the panel was wrong", refuted),
                          ("Could not be decided by running code", unknown)):

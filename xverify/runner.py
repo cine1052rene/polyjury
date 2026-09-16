@@ -16,7 +16,17 @@ from pathlib import Path
 
 VERDICT_YES = "VERDICT: REPRODUCED"
 VERDICT_NO = "VERDICT: NOT_REPRODUCED"
+VERDICT_UNSURE = "VERDICT: INCONCLUSIVE"
 RUN_TIMEOUT = 90
+
+
+def _import_roots(root: Path, sep: str) -> str:
+    """Packages often live in src/ or app/, so put those on the path too."""
+    parts = [str(root)]
+    for extra in ("src", "app", "lib"):
+        if (root / extra).is_dir():
+            parts.append(str(root / extra))
+    return sep.join(parts)
 
 
 @dataclass
@@ -28,10 +38,11 @@ class RunResult:
 
 def _read_verdict(stdout: str, stderr: str, runner: str) -> RunResult:
     tail = (stdout or "")[-4000:]
-    if VERDICT_YES in stdout:
-        return RunResult("REPRODUCED", tail, runner)
-    if VERDICT_NO in stdout:
-        return RunResult("NOT_REPRODUCED", tail, runner)
+    verdicts = {VERDICT_YES: "REPRODUCED", VERDICT_NO: "NOT_REPRODUCED", VERDICT_UNSURE: "UNVERIFIED"}
+    for line in reversed((stdout or "").splitlines()):
+        for marker, name in verdicts.items():
+            if marker in line:
+                return RunResult(name, tail, runner)
     err = (stderr or "").strip()[-1200:]
     return RunResult("UNVERIFIED", (tail + "\n" + err).strip() or "no output", runner)
 
@@ -53,7 +64,7 @@ class LocalRunner:
             env = {k: v for k, v in os.environ.items()
                    if k in {"PATH", "SYSTEMROOT", "TEMP", "TMP", "PYTHONPATH", "LANG"}}
             env["PYTHONIOENCODING"] = "utf-8"
-            env["PYTHONPATH"] = str(self.root) + os.pathsep + env.get("PYTHONPATH", "")
+            env["PYTHONPATH"] = _import_roots(self.root, os.pathsep) + os.pathsep + env.get("PYTHONPATH", "")
             try:
                 proc = subprocess.run([sys.executable, "-s", "-X", "utf8", str(path)],
                                       cwd=self.root, env=env, capture_output=True,
@@ -91,7 +102,8 @@ class SandboxRunner:
             return RunResult("UNVERIFIED", "no proof script was written", self.name)
         try:
             result = self.image.run("python", args=["proof.py"], cwd="/work",
-                                    env={"PYTHONPATH": "/work", "PYTHONIOENCODING": "utf-8"},
+                                    env={"PYTHONPATH": _import_roots(Path("/work"), ":"),
+                                         "PYTHONIOENCODING": "utf-8"},
                                     files=self._payload(script), timeout=RUN_TIMEOUT,
                                     disposable=True).wait()
         except Exception as exc:  # noqa: BLE001

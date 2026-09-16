@@ -36,9 +36,14 @@ Rules:
 - Standard library plus whatever the repository already imports. No network calls, no writes
   outside the working directory, no sleep longer than 2 seconds.
 - Put the whole check inside try/except so it can never die without answering.
-- The LAST line you print must be exactly "VERDICT: REPRODUCED" or "VERDICT: NOT_REPRODUCED".
-  Print the evidence (values, status codes, matched lines) before it. If your own check errors
-  out or the claim cannot be decided this way, print the error and then "VERDICT: NOT_REPRODUCED".
+- The repository root is on sys.path, and so are its src/, app/ and lib/ folders if they exist.
+  Import the package by its real name; if the import fails, that is an INCONCLUSIVE run, not a disproof.
+- The LAST line you print must be exactly one of:
+    "VERDICT: REPRODUCED"      - you made the defect happen and printed the evidence
+    "VERDICT: NOT_REPRODUCED"  - your check ran correctly and the defect did NOT happen
+    "VERDICT: INCONCLUSIVE"    - your own check failed, or this cannot be decided by running code
+  Print the evidence (values, status codes, matched lines) before that line. Never claim
+  NOT_REPRODUCED because your script crashed - that proves nothing.
 
 Reply in exactly this shape and nothing else:
 
@@ -130,6 +135,32 @@ def _make_it_parse(script: str, task: str, tries: int = 2) -> str:
                 return script
             script = block.group(1).strip()
     return script
+
+
+RETRY_PROMPT = """Your proof script did not decide the claim: it failed while running.
+Here is the claim, the script and what the run printed. Write a corrected script that
+actually exercises the code, using the same output rules (REPRODUCED / NOT_REPRODUCED /
+INCONCLUSIVE as the last line). Reply with PROVES:, KIND: and one ```python block."""
+
+
+def retry_proof(claim: Claim, context: str) -> Claim:
+    """One second attempt when the first script broke rather than answered."""
+    task = ("CLAIM: " + claim.title + chr(10) + "FILE: " + claim.file + chr(10) * 2
+            + "SCRIPT THAT FAILED:" + chr(10) + claim.script + chr(10) * 2
+            + "WHAT IT PRINTED:" + chr(10) + (claim.evidence or "")[-2000:] + chr(10) * 2
+            + "REPOSITORY CODE:" + chr(10) + context)
+    try:
+        raw, _ = chat(RETRY_PROMPT, task[:90000], think=True, max_tokens=9000,
+                      temperature=0.2, timeout=CHAIR_TIMEOUT)
+    except Exception:  # noqa: BLE001
+        return claim
+    block = SCRIPT_RE.search(raw)
+    if block:
+        claim.script = _make_it_parse(block.group(1).strip(), task)
+        proves = PROVES_RE.search(raw)
+        if proves:
+            claim.what_it_proves = proves.group(1).strip()
+    return claim
 
 
 def write_proofs(claims: list[Claim], context: str, workers: int = 4) -> list[Claim]:

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Repro — proof by execution for AI-written code</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="logo">&#9646;&#9647;</span>
+    <div>
+      <h1>Repro</h1>
+      <p class="sub">A panel of models reviews your AI-written code. Nothing is reported until it is <strong>reproduced by running it</strong>.</p>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="start">
+    <form id="run-form">
+      <label for="target">Public GitHub repository</label>
+      <div class="row">
+        <input id="target" name="target" type="url" spellcheck="false"
+               placeholder="https://github.com/owner/repo" required />
+        <button class="primary" id="run-btn" type="submit">Verify</button>
+      </div>
+      <p class="hint">Your own project, please. Repro reads the source; it never pushes anything back.</p>
+    </form>
+    <p class="error" id="error" hidden></p>
+  </section>
+
+  <section class="stage" id="stage-collect" hidden>
+    <h2><span class="num">1</span> The code under review</h2>
+    <p class="stage-note" id="collect-note"></p>
+    <ul class="files" id="files"></ul>
+  </section>
+
+  <section class="stage" id="stage-panel" hidden>
+    <h2><span class="num">2</span> The panel reads it &mdash; separately</h2>
+    <p class="stage-note">Each model gets the same code and never sees the others' answers.</p>
+    <div class="panel-grid" id="panel"></div>
+  </section>
+
+  <section class="stage" id="stage-chair" hidden>
+    <h2><span class="num">3</span> Nemotron chairs the panel</h2>
+    <p class="stage-note" id="chair-note">Merging duplicates and dropping what cannot be checked&hellip;</p>
+  </section>
+
+  <section class="stage" id="stage-proof" hidden>
+    <h2><span class="num">4</span> Every claim has to prove itself</h2>
+    <p class="stage-note">Nemotron writes a script for each claim and the script is executed. The verdict comes from what actually happened.</p>
+    <div class="claims" id="claims"></div>
+  </section>
+
+  <section class="stage result" id="stage-done" hidden>
+    <h2>Result</h2>
+    <p class="score" id="score"></p>
+    <button class="primary" id="copy-btn" type="button">Copy the fix prompt</button>
+    <pre class="prompt" id="fix-prompt"></pre>
+  </section>
+</main>
+
+<footer>
+  <p>Reviewers and chair run on <strong>Nebius Token Factory</strong>. Proof scripts run in <strong>Token Factory Sandboxes</strong> &mdash; one disposable microVM per proof, because running model-written code anywhere else is exactly the risk this tool exists to catch.</p>
+</footer>
+<script src="/app.js"></script>
+</body>
+</html>
