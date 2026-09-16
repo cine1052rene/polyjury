@@ -1,26 +1,23 @@
-# secrets
-.env
-*.key
 
-# python
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-.pytest_cache/
-
-# data / scratch
-assets/tmp/
-*.log
-scratch/
-
-# private notes / tooling (never publish: coupon codes, event notes, agent rules)
-private/
-memory/
-CLAUDE.md
-assets/test/
 
 # browser automation artifacts
+# data / scratch
+# private notes / tooling (never publish: coupon codes, event notes, agent rules)
+# python
+# secrets
+*.key
+*.log
+*.py[cod]
+.env
 .playwright-mcp/
-
+.pytest_cache/
+.venv/
 .vercel
+CLAUDE.md
+__pycache__/
+assets/test/
+assets/tmp/
+memory/
+private/
+scratch/
+venv/

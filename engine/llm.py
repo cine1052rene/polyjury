@@ -12,12 +12,14 @@ from core.nebius_client import get_client
 NEMOTRON = config.TEXT_MODEL
 
 
-def chat(system: str, user: str, *, think: bool = True, model: str | None = None,
-         max_tokens: int = 5000, temperature: float = 0.3) -> tuple[str, float]:
+def chat(system: str, user: str, *, think: bool | None = True, model: str | None = None,
+         max_tokens: int = 5000, temperature: float = 0.3,
+         timeout: float | None = None) -> tuple[str, float]:
     """Run one chat call. Returns (text, seconds)."""
     t0 = time.time()
     text = get_client().chat(user, system=system, model=model or NEMOTRON,
-                             temperature=temperature, max_tokens=max_tokens, thinking=think)
+                             temperature=temperature, max_tokens=max_tokens,
+                             thinking=think, timeout=timeout)
     return text, round(time.time() - t0, 2)
 
 

@@ -76,14 +76,15 @@ class NebiusClient:
         temperature: float = 0.2,
         max_tokens: int | None = None,
         thinking: bool | None = None,
+        timeout: float | None = None,
     ) -> str:
         messages: list[Message] = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
         return self.complete(
-            messages, model=model or self.text_model,
-            temperature=temperature, max_tokens=max_tokens, thinking=thinking,
+            messages, model=model or self.text_model, temperature=temperature,
+            max_tokens=max_tokens, thinking=thinking, timeout=timeout,
         )
 
     # -- 비전 ---------------------------------------------------------------
@@ -127,6 +128,7 @@ class NebiusClient:
         temperature: float = 0.2,
         max_tokens: int | None = None,
         thinking: bool | None = None,
+        timeout: float | None = None,
     ) -> str:
         """thinking: Nemotron 추론 모드 on/off (None 이면 모델 기본값).
 
@@ -141,6 +143,8 @@ class NebiusClient:
             kwargs["max_tokens"] = max_tokens
         if thinking is not None:
             kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": thinking}}
+        if timeout is not None:
+            kwargs["timeout"] = timeout
 
         response = self._client.chat.completions.create(**kwargs)
         return (response.choices[0].message.content or "").strip()
