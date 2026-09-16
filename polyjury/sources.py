@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
 from core.tavily_client import get_search
-from engine.llm import chat, parse_json
+from polyjury.llm import chat, parse_json
 
 # Places that define or document a defect class, rather than blog about it.
 AUTHORITIES = [

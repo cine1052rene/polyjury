@@ -54,8 +54,23 @@ uvicorn app.server:app --reload
 | `polyjury/panel.py` | jurors review in parallel; prose answers are normalised to JSON |
 | `polyjury/chair.py` | Nemotron merges claims, writes each proof, repairs it if it will not parse |
 | `polyjury/runner.py` | Sandboxes, or a local subprocess when you ask for it |
+| `polyjury/sources.py` | Tavily finds the standard or documentation that names the defect |
 | `polyjury/report.py` | the verdicts, plus a prompt you can paste back to the AI that wrote the code |
+| `polyjury/llm.py` | one place that talks to Token Factory |
 | `app/server.py` | one short HTTP call per step, so the browser can show the work |
+
+## Sources
+
+A reproduced defect proves that something happens. It does not explain why it is a
+known bad idea. For every claim, Nemotron rewrites the defect in the vocabulary of
+the standards and **Tavily** searches CWE, OWASP, MDN, PortSwigger, the RFCs and the
+official docs for the literature that already names it. The Sources drawer in the web
+app shows what it found, next to the run that proved it.
+
+Tavily's `include_domains` turned out to be unreliable — the same query returned MDN,
+PortSwigger and OWASP on one call and a dictionary definition of "rate" on the next —
+so both a filtered and an open search run in parallel and the authoritative hits are
+picked from the combined pool.
 
 ## Models
 

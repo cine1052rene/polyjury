@@ -2,7 +2,6 @@
 
 설계 원칙: Tavily 는 "항상 부르는 도구"가 아니라 **모델이 스스로 근거가 부족하다고
 판단했을 때만** 부르는 도구다. 매 요청마다 검색하면 비용·지연만 늘고 에이전트가 아니다.
-호출 게이트는 core/prompts.py 의 NEED_SEARCH_GATE 가 담당한다.
 """
 from __future__ import annotations
 

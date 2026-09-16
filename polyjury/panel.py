@@ -5,7 +5,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from engine.llm import chat, parse_json
+from polyjury.llm import chat, parse_json
 
 # Measured 2026-09-16 on our own code: these two answer fast and return valid JSON.
 # GLM-5.3 returned an empty body and Kimi-K3 timed out, so they are off by default.

@@ -7,7 +7,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from engine.llm import chat, parse_json
+from polyjury.llm import chat, parse_json
 
 CHAIR_TIMEOUT = 150.0
 
