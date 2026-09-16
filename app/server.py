@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from xverify import chair, panel, pipeline, report  # noqa: E402
+from polyjury import chair, panel, pipeline, report  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 UI = ROOT / "webui"

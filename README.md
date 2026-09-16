@@ -1,67 +1,68 @@
-# Factdunit
+# Polyjury
 
-**A daily detective game where fictional cases are cracked by today's real-world facts — and AI prosecutors, defenders and judges make every clue fair.**
+**One AI wrote your code. Don't let one AI judge it.**
 
-> Status: early prototype for the Nebius × NVIDIA Global AI Hackathon (2026). Probes and design notes only; the playable app is under construction.
+Polyjury sends your repository to several open models on [Nebius Token Factory](https://tokenfactory.nebius.com).
+Each one reviews it alone. NVIDIA Nemotron then presides: it merges what the jurors said, throws
+out what cannot be checked, and — for every surviving claim — writes a Python script that tries to
+make the defect actually happen. The script is executed. **Only what is reproduced reaches you.**
 
-## Why
+A review that says "this might be vulnerable" costs you an afternoon. A review that says
+"here is the request, here is the response, here is the file it wrote" costs you a fix.
 
-Misinformation spreads faster than fact-checks, and the skill that stops it — *checking the source, the date and the original context* — is rarely practiced. Research on "inoculation" games shows people get better at spotting manipulation by playing. Factdunit turns that skill into a daily habit: you can only solve the case by verifying real, current facts on the open web.
+## Why a jury
 
-## Modes
+Measured on this project's own code, three models produced 17 findings between them and only
+**2 of the merged claims were raised by more than one model**. A single reviewer misses most of it.
+They also disagree in the other direction: claims that sound serious fall apart the moment you run them.
 
-| Mode | What you do |
-|---|---|
-| 🕵️ **City Case** | A fictional theft in a real city, today. One suspect's alibi collides with a real public fact (a line closure, a road shutdown, a venue closure). Search the live web to find it. |
-| 🔍 **Rumor Squad** | Everyone investigates the same real circulating claim. You are scored on your *process* (Stop · Investigate the source · Find better coverage · Trace the original), not just the verdict. |
-| 🌍 **Rumor Passport** | Follow one rumor as it crosses languages and countries, and see how it mutated. |
+| Verdict | Meaning |
+| --- | --- |
+| `CONFIRMED · RAN IT` | a script made it happen, and the output is shown |
+| `LIKELY · READ IT` | supported by the source, but not by execution |
+| `FALSE ALARM` | the check ran correctly and the defect did not happen |
+| `NEEDS A HUMAN` | the check itself failed — that proves nothing either way |
 
-**Ground rules:** fictional people only · no real crimes, CCTV, faces or location tracking · short quotes with attribution and a link to the original source.
+That last row matters. A proof script that crashes is not a disproof, and Polyjury never
+pretends otherwise.
 
-## How it works
+## Where the proofs run
 
-```
-Tavily (search / extract, date-filtered)          ← today's public facts & claims
-        │
-        ▼
-Fact selector (Nemotron, thinking on)             ← keep only definitive, in-window facts; verify the quote exists in the page
-        │
-        ▼
-Case writer                                        ← fictional suspects, exactly one alibi contradicted
-        │
-        ▼
-Fair-play court                                    ← defender looks for any reasonable reading; judge (Nemotron) decides
-        │                                            unfair puzzles are rejected and regenerated
-        ▼
-Player investigation → process scoring (SIFT rubric)
-```
+Model-written code that tries to break things is exactly what you must not run on your own
+machine — so it runs in **Nebius Token Factory Sandboxes**, one disposable microVM per proof.
+While you wait for Sandboxes beta access, `--allow-local-exec` runs proofs in a subprocess
+instead. Use it only on code you already trust.
 
-All model calls run on **Nebius Token Factory** (OpenAI-compatible API) using **NVIDIA Nemotron 3** models; web retrieval uses **Tavily**.
-
-## Early measurements (Sep 2026, small samples)
-
-- Fair-play judge (Nemotron 3 Super, thinking on) with a "reasonable reading" rule: 6/6 on a hand-labelled set of 3 fair and 3 flawed puzzles.
-- Process scoring separates a thorough investigation (7–8/8) from a sloppy one (0/8).
-- Quotes selected from Korean and English news verified against the extracted page text.
-
-## Setup
+## Run it
 
 ```bash
-python -m venv .venv && . .venv/Scripts/activate   # Windows (use bin/activate on macOS/Linux)
 pip install -r requirements.txt
-cp .env.example .env   # add NEBIUS_API_KEY and TAVILY_API_KEY
-python scripts/list_models.py
+cp .env.example .env          # NEBIUS_API_KEY, NEBIUS_PROJECT_ID
+
+# command line
+python scripts/polyjury_run.py https://github.com/owner/repo
+
+# web app
+uvicorn app.server:app --reload
 ```
 
-## Repository layout
+## How it is put together
 
-```
-config.py              environment & model roles
-core/nebius_client.py  Token Factory wrapper (OpenAI SDK)
-core/tavily_client.py  Tavily wrapper
-scripts/               probes: case_probe*.py, seoul_probe*.py, defense_probe.py
-```
+| Module | Job |
+| --- | --- |
+| `polyjury/collect.py` | pull a public repo, pick the files worth reviewing |
+| `polyjury/panel.py` | jurors review in parallel; prose answers are normalised to JSON |
+| `polyjury/chair.py` | Nemotron merges claims, writes each proof, repairs it if it will not parse |
+| `polyjury/runner.py` | Sandboxes, or a local subprocess when you ask for it |
+| `polyjury/report.py` | the verdicts, plus a prompt you can paste back to the AI that wrote the code |
+| `app/server.py` | one short HTTP call per step, so the browser can show the work |
 
-## License
+## Models
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+Jurors: `deepseek-ai/DeepSeek-V4-Pro`, `Qwen/Qwen3.5-397B-A17B`, `openai/gpt-oss-120b`.
+Presiding: `nvidia/nemotron-3-super-120b-a12b` with thinking enabled — merging contradictory
+reviews and writing a falsifiable test is judgement, not retrieval.
+
+## Licence
+
+Apache-2.0. See [LICENSE](LICENSE).

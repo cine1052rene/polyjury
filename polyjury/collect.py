@@ -96,7 +96,7 @@ def from_github(url: str, dest: Path) -> Repo:
     for branch in ("main", "master"):
         api = f"https://codeload.github.com/{owner}/{name}/zip/refs/heads/{branch}"
         try:
-            req = urllib.request.Request(api, headers={"User-Agent": "xverify"})
+            req = urllib.request.Request(api, headers={"User-Agent": "polyjury"})
             blob = urllib.request.urlopen(req, timeout=60).read()
             break
         except Exception as exc:  # noqa: BLE001

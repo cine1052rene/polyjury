@@ -1,7 +1,7 @@
 """Turn verified claims into something a non-developer can act on."""
 from __future__ import annotations
 
-from xverify.chair import Claim
+from polyjury.chair import Claim
 
 MARK = {"REPRODUCED": "CONFIRMED", "NOT_REPRODUCED": "FALSE ALARM", "UNVERIFIED": "NEEDS A HUMAN"}
 

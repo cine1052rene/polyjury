@@ -10,9 +10,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from xverify import chair, collect, panel, report, runner  # noqa: E402
+from polyjury import chair, collect, panel, report, runner  # noqa: E402
 
-OUT = Path(__file__).resolve().parents[1] / "scratch" / "xverify"
+OUT = Path(__file__).resolve().parents[1] / "scratch" / "polyjury"
 
 
 def main() -> None:
@@ -63,7 +63,7 @@ def main() -> None:
         {"repo": repo.name, "panel": stats, "dropped": dropped,
          "claims": [c.__dict__ for c in claims]}, ensure_ascii=False, indent=2), encoding="utf-8")
     print("\n" + md)
-    print(f"[done] {round(time.time() - t0, 1)}s -> scratch/xverify/report-{stamp}.md")
+    print(f"[done] {round(time.time() - t0, 1)}s -> scratch/polyjury/report-{stamp}.md")
 
 
 if __name__ == "__main__":

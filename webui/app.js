@@ -72,7 +72,7 @@ function claimCard(claim, index) {
     </div>
     <p class="why">${claim.what_breaks || ""}</p>
     <p class="where">${claim.file || ""} ${claim.where ? "· " + claim.where : ""}</p>
-    <p class="votes">raised by ${votes} of ${REVIEWERS.length} reviewers</p>
+    <p class="votes">raised by ${votes} of ${REVIEWERS.length} jurors</p>
     <div id="proof-${index}"></div>`;
   return el;
 }
@@ -114,7 +114,7 @@ async function run(target) {
     )
   );
   const findings = reviews.flatMap((r) => r.findings || []);
-  if (!findings.length) throw new Error("No reviewer returned anything usable for this repository.");
+  if (!findings.length) throw new Error("No juror returned anything usable for this repository.");
 
   show("stage-chair");
   const merged = await api("/api/merge", { findings });
@@ -144,7 +144,7 @@ async function run(target) {
   const ran = confirmed.filter((c) => c.proof_kind === "dynamic");
   show("stage-done");
   $("score").innerHTML =
-    `${findings.length} findings from ${REVIEWERS.length} models became ${proved.length} claims, ` +
+    `${findings.length} findings from ${REVIEWERS.length} jurors became ${proved.length} claims, ` +
     `and <b>${ran.length} were reproduced by actually running the code</b>` +
     `${confirmed.length > ran.length ? `, ${confirmed.length - ran.length} supported by reading it` : ""}. ` +
     `${proved.length - confirmed.length} did not survive.`;

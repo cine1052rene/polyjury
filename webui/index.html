@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Repro — proof by execution for AI-written code</title>
+<title>Polyjury — a jury of models, and every claim has to prove itself</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
@@ -12,10 +12,10 @@
 <body>
 <header class="top">
   <div class="brand">
-    <span class="logo">&#9646;&#9647;</span>
+    <span class="logo">&#9878;</span>
     <div>
-      <h1>Repro</h1>
-      <p class="sub">A panel of models reviews your AI-written code. Nothing is reported until it is <strong>reproduced by running it</strong>.</p>
+      <h1>Polyjury</h1>
+      <p class="sub">One AI wrote your code. Don't let one AI judge it. A jury of models reviews it separately, and nothing reaches you until it is <strong>reproduced by running it</strong>.</p>
     </div>
   </div>
 </header>
@@ -29,7 +29,7 @@
                placeholder="https://github.com/owner/repo" required />
         <button class="primary" id="run-btn" type="submit">Verify</button>
       </div>
-      <p class="hint">Your own project, please. Repro reads the source; it never pushes anything back.</p>
+      <p class="hint">Your own project, please. Polyjury reads the source; it never pushes anything back.</p>
     </form>
     <p class="error" id="error" hidden></p>
   </section>
@@ -41,13 +41,13 @@
   </section>
 
   <section class="stage" id="stage-panel" hidden>
-    <h2><span class="num">2</span> The panel reads it &mdash; separately</h2>
-    <p class="stage-note">Each model gets the same code and never sees the others' answers.</p>
+    <h2><span class="num">2</span> The jury reads it &mdash; separately</h2>
+    <p class="stage-note">Each juror gets the same code and never sees the others' answers.</p>
     <div class="panel-grid" id="panel"></div>
   </section>
 
   <section class="stage" id="stage-chair" hidden>
-    <h2><span class="num">3</span> Nemotron chairs the panel</h2>
+    <h2><span class="num">3</span> Nemotron presides</h2>
     <p class="stage-note" id="chair-note">Merging duplicates and dropping what cannot be checked&hellip;</p>
   </section>
 

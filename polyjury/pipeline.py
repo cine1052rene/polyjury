@@ -6,10 +6,10 @@ import os
 import tempfile
 from pathlib import Path
 
-from xverify import chair, collect, panel, runner
+from polyjury import chair, collect, panel, runner
 
-CACHE = Path(os.environ.get("XVERIFY_CACHE", Path(tempfile.gettempdir()) / "xverify-cache"))
-ALLOW_LOCAL = os.environ.get("XVERIFY_ALLOW_LOCAL_EXEC", "") == "1"
+CACHE = Path(os.environ.get("POLYJURY_CACHE", Path(tempfile.gettempdir()) / "polyjury-cache"))
+ALLOW_LOCAL = os.environ.get("POLYJURY_ALLOW_LOCAL_EXEC", "") == "1"
 
 
 def repo_cache_dir(target: str) -> Path:
