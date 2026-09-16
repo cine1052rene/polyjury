@@ -7,6 +7,7 @@ names it, so the report can point somewhere other than at itself.
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
@@ -63,6 +64,15 @@ def _query_for(claim: dict) -> tuple[str, str]:
 STOPWORDS = {"the", "a", "an", "of", "via", "and", "or", "in", "on", "to", "for", "with", "by"}
 
 
+def _search(query: str, limit: int, only_authorities: bool) -> list[dict]:
+    try:
+        return get_search().search(
+            query, max_results=limit, depth="basic", include_answer=False,
+            include_domains=AUTHORITIES if only_authorities else None).sources
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _from_authority(url: str) -> bool:
     host = urlparse(url).hostname or ""
     return any(host == d or host.endswith("." + d) for d in AUTHORITIES)
@@ -85,13 +95,17 @@ def cite(claim: dict, limit: int = 3) -> Citation:
     query, why = _query_for(claim)
     out = Citation(claim=claim.get("title", ""), query=query, why_it_matters=why)
     try:
-        raw = get_search().search(query, max_results=limit * 3, depth="basic",
-                                  include_answer=False, include_domains=AUTHORITIES).sources
-        keep = [r for r in raw if r.get("url") and _from_authority(r["url"])]
-        if not keep:  # the standards have nothing: widen, but stay on topic
-            raw = get_search().search(query, max_results=limit * 3, depth="basic",
-                                      include_answer=False).sources
-            keep = [r for r in raw if r.get("url") and _looks_relevant(r, query)]
+        # The domain filter is unreliable and its results vary between calls, so both
+        # searches run and the authoritative hits are preferred from the combined pool.
+        pool: list[dict] = []
+        with ThreadPoolExecutor(max_workers=2) as run:
+            jobs = [run.submit(_search, query, limit * 3, True),
+                    run.submit(_search, query, limit * 3, False)]
+            for job in jobs:
+                pool.extend(job.result())
+        keep = [r for r in pool if r.get("url") and _from_authority(r["url"])]
+        if not keep:  # the standards have nothing on it: widen, but stay on topic
+            keep = [r for r in pool if r.get("url") and _looks_relevant(r, query)]
         seen, picked = set(), []
         for item in keep:
             host = urlparse(item["url"]).hostname or item["url"]
