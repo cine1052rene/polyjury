@@ -6,7 +6,9 @@ names it, so the report can point somewhere other than at itself.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+from urllib.parse import urlparse
 
 from core.tavily_client import get_search
 from engine.llm import chat, parse_json
@@ -58,21 +60,49 @@ def _query_for(claim: dict) -> tuple[str, str]:
     return claim.get("title", "")[:120], ""
 
 
+STOPWORDS = {"the", "a", "an", "of", "via", "and", "or", "in", "on", "to", "for", "with", "by"}
+
+
+def _from_authority(url: str) -> bool:
+    host = urlparse(url).hostname or ""
+    return any(host == d or host.endswith("." + d) for d in AUTHORITIES)
+
+
+def _looks_relevant(item: dict, query: str) -> bool:
+    """Tavily sometimes ignores include_domains and answers the query word by word,
+    so a search for a header-spoofing bypass comes back with a dictionary entry for
+    'rate'. Keep only results that actually carry the query's own vocabulary."""
+    words = {w for w in re.findall(r"[a-z0-9-]{4,}", query.lower()) if w not in STOPWORDS}
+    if not words:
+        return True
+    text = f"{item.get('title', '')} {item.get('content', '')}".lower()
+    hits = sum(1 for w in words if w in text)
+    return hits >= max(2, len(words) // 3)
+
+
 def cite(claim: dict, limit: int = 3) -> Citation:
     """One claim in, the literature that already knows about it out."""
     query, why = _query_for(claim)
     out = Citation(claim=claim.get("title", ""), query=query, why_it_matters=why)
     try:
-        result = get_search().search(query, max_results=limit, depth="basic",
-                                     include_answer=False, include_domains=AUTHORITIES)
-        sources = result.sources
-        if not sources:  # nothing in the standards: widen to the open web
-            result = get_search().search(query, max_results=limit, depth="basic",
-                                         include_answer=False)
-            sources = result.sources
-        out.sources = [Source(title=s.get("title", "")[:160], url=s.get("url", ""),
-                              snippet=(s.get("content") or "")[:320])
-                       for s in sources[:limit] if s.get("url")]
+        raw = get_search().search(query, max_results=limit * 3, depth="basic",
+                                  include_answer=False, include_domains=AUTHORITIES).sources
+        keep = [r for r in raw if r.get("url") and _from_authority(r["url"])]
+        if not keep:  # the standards have nothing: widen, but stay on topic
+            raw = get_search().search(query, max_results=limit * 3, depth="basic",
+                                      include_answer=False).sources
+            keep = [r for r in raw if r.get("url") and _looks_relevant(r, query)]
+        seen, picked = set(), []
+        for item in keep:
+            host = urlparse(item["url"]).hostname or item["url"]
+            if host in seen:
+                continue
+            seen.add(host)
+            picked.append(Source(title=(item.get("title") or "")[:160], url=item["url"],
+                                 snippet=(item.get("content") or "")[:320]))
+            if len(picked) == limit:
+                break
+        out.sources = picked
     except Exception as exc:  # noqa: BLE001
         out.error = f"{type(exc).__name__}: {exc}"[:160]
     return out
