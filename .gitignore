@@ -21,3 +21,7 @@ memory/
 private/
 scratch/
 venv/
+.vercel-factdunit/
+
+.vercel
+.env*

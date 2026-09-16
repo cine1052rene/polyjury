@@ -128,7 +128,8 @@ def pick(repo_root: Path, files: list[Path], allow_local: bool = False):
     except Exception as exc:  # noqa: BLE001
         if not allow_local:
             raise RuntimeError(
-                f"Sandboxes unavailable ({type(exc).__name__}). Re-run with --allow-local-exec "
-                "only if you trust the repository under review.") from exc
+                "This claim was not tested. Polyjury only runs proofs inside Nebius Token "
+                "Factory Sandboxes, and that access is not available right now "
+                f"({type(exc).__name__}). The proof script below is what would decide it.") from exc
         print(f"[runner] sandbox unavailable ({type(exc).__name__}), falling back to local", flush=True)
         return LocalRunner(repo_root)

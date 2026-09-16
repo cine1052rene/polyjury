@@ -4,3 +4,4 @@ tavily-python>=0.5.0
 fastapi>=0.110
 uvicorn>=0.29
 pillow>=10.0.0
+contree-sdk>=0.1
