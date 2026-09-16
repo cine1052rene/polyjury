@@ -15,6 +15,7 @@
   --drawer-w: 360px;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }  /* .row is a flexbox and would ignore it */
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); }
 body {
   font-family: Inter, system-ui, sans-serif; line-height: 1.55; font-size: 15px;
