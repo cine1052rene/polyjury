@@ -101,6 +101,12 @@ class SandboxRunner:
         # images.use() makes no API call, so prove access before we promise anything.
         self.image.run("true", timeout=30, disposable=True).wait()
 
+    def _remote_path(self) -> str:
+        """The VM is Linux whatever the host is: build POSIX paths, but look for
+        src/ app/ lib/ in the local copy, since that is what gets uploaded."""
+        parts = ["/work"] + [f"/work/{d}" for d in ("src", "app", "lib") if (self.root / d).is_dir()]
+        return ":".join(parts)
+
     def _payload(self, script: str) -> dict[str, Path | bytes]:
         payload: dict[str, Path | bytes] = {"/work/proof.py": script.encode("utf-8")}
         for rel in self.files:
@@ -112,7 +118,7 @@ class SandboxRunner:
             return RunResult("UNVERIFIED", "no proof script was written", self.name)
         try:
             result = self.image.run("python", args=["proof.py"], cwd="/work",
-                                    env={"PYTHONPATH": _import_roots(Path("/work"), ":"),
+                                    env={"PYTHONPATH": self._remote_path(),
                                          "PYTHONIOENCODING": "utf-8"},
                                     files=self._payload(script), timeout=RUN_TIMEOUT,
                                     disposable=True).wait()
