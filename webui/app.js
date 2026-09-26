@@ -358,7 +358,7 @@ fetch("/api/models")
   .then((d) => {
     REVIEWERS = d.reviewers;
     $("juror-count").textContent = String(d.reviewers.length);
-    $("sandbox-state").textContent = d.sandbox ? "waiting for beta" : "offline";
-    $("sandbox-dot").classList.add("off");
+    $("sandbox-state").textContent = d.sandbox ? "Nebius microVM" : "offline";
+    $("sandbox-dot").classList.toggle("off", !d.sandbox);
   })
   .catch(() => { REVIEWERS = []; });

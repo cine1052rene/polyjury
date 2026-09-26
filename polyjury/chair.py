@@ -33,6 +33,8 @@ Rules:
 - Prefer EXERCISING the code: import the module and call it, or drive the web app in-process
   with its test client, and print the real values you got back. Reading source text is only
   acceptable when the claim is purely about how the code is written.
+- The repository's declared dependencies are already installed. Never pip install anything
+  yourself; a missing package means INCONCLUSIVE.
 - Standard library plus whatever the repository already imports. No network calls, no writes
   outside the working directory, no sleep longer than 2 seconds.
 - Put the whole check inside try/except so it can never die without answering.

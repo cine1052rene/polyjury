@@ -30,6 +30,9 @@ pretends otherwise.
 
 Model-written code that tries to break things is exactly what you must not run on your own
 machine — so it runs in **Nebius Token Factory Sandboxes**, one disposable microVM per proof.
+Before each proof the VM installs what the repository declares in `pyproject.toml` (including
+its test dependency group) or `requirements.txt` — plain requirement strings only, so a
+repository cannot point pip at a URL of its own choosing.
 While you wait for Sandboxes beta access, `--allow-local-exec` runs proofs in a subprocess
 instead. Use it only on code you already trust.
 
