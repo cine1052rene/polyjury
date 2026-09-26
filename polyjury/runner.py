@@ -131,7 +131,8 @@ class SandboxRunner:
 
     name = "nebius-sandbox"
 
-    def __init__(self, repo_root: Path, files: list[Path], image: str = "python:3.12-slim"):
+    def __init__(self, repo_root: Path, files: list[Path], image: str = "python:3.12-slim",
+                 top: Path | None = None):
         from contree_sdk import ContreeSync  # imported lazily: beta access required
 
         self.root = Path(repo_root)
@@ -139,7 +140,8 @@ class SandboxRunner:
         self.image_tag = image
         self.client = ContreeSync()
         self.image = self.client.images.use(image)
-        self.deps = declared_deps(self.root)
+        # a sub-folder usually has no manifest of its own: fall back to the repo's
+        self.deps = declared_deps(self.root) or (declared_deps(Path(top)) if top else [])
         # images.use() makes no API call, so prove access before we promise anything.
         self.image.run("true", timeout=30, disposable=True).wait()
 
@@ -180,10 +182,10 @@ class SandboxRunner:
         return _read_verdict(result.stdout or "", result.stderr or "", self.name)
 
 
-def pick(repo_root: Path, files: list[Path], allow_local: bool = False):
+def pick(repo_root: Path, files: list[Path], allow_local: bool = False, top: Path | None = None):
     """Sandbox when available, local only when the user explicitly allows it."""
     try:
-        return SandboxRunner(repo_root, files)
+        return SandboxRunner(repo_root, files, top=top)
     except Exception as exc:  # noqa: BLE001
         if not allow_local:
             raise RuntimeError(

@@ -27,11 +27,8 @@ def get_repo(target: str, bucket: str = "") -> collect.Repo:
     src = home / "src"
     if src.is_dir():
         try:
-            inner = next(d for d in src.iterdir() if d.is_dir())
-            repo = collect.from_path(inner)
-            repo.name = target.rstrip("/").split("github.com/")[-1]
-            return repo
-        except (StopIteration, ValueError):
+            return collect.locate(src, target)
+        except StopIteration:
             pass
     return collect.from_github(target, src)
 
@@ -51,7 +48,7 @@ def prove(claim: chair.Claim, bundle: str, repo: collect.Repo) -> chair.Claim:
         claim.verdict, claim.runner = "UNVERIFIED", "none"
         return claim
     try:
-        backend = runner.pick(repo.root, repo.files, allow_local=os.environ.get("POLYJURY_ALLOW_LOCAL_EXEC", "") == "1")
+        backend = runner.pick(repo.root, repo.files, top=repo.top, allow_local=os.environ.get("POLYJURY_ALLOW_LOCAL_EXEC", "") == "1")
     except RuntimeError as exc:
         claim.verdict, claim.evidence, claim.runner = "UNVERIFIED", str(exc), "none"
         return claim

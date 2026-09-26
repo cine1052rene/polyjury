@@ -9,7 +9,7 @@ const state = { target: "", bundle: "", claims: [], cited: new Set() };
 
 const MODES = {
   repo: { title: "Repository", note: "One AI wrote your code. Don't let one AI judge it.",
-          hint: "Your own project, please. A verdict takes about two minutes." },
+          hint: "A whole repository, or one folder of it: open the folder on GitHub and paste that address. About two minutes." },
   snippet: { title: "Single file", note: "Paste what your assistant wrote and let the jury read it.",
              hint: "Nothing is stored. Proofs still run in a sandbox, never in your browser." },
   recorded: { title: "Recorded verdict", note: "A finished case on a real public repository.",

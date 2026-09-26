@@ -10,7 +10,7 @@ from pathlib import Path
 
 CODE_EXT = {".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".rb", ".php", ".java", ".rs"}
 CONFIG_EXT = {".json", ".yaml", ".yml", ".toml", ".env", ".cfg"}
-SKIP_DIR = {"node_modules", ".git", "dist", "build", "vendor", "__pycache__", ".next",
+SKIP_DIR = {"node_modules", ".git", "dist", "build", "out", "vendor", "__pycache__", ".next",
             "venv", ".venv", "site-packages", "migrations", "test", "tests", "__tests__"}
 SKIP_NAME = re.compile(r"(\.min\.|lock|\.map$|package-lock|yarn\.lock|poetry\.lock)", re.I)
 # Files most likely to hold the defects that hurt a published app.
@@ -28,6 +28,7 @@ class Repo:
     root: Path
     files: list[Path]          # paths relative to root
     total_bytes: int
+    top: Path | None = None    # repository top when root is a sub-folder of it
 
     def bundle(self, budget: int = MAX_TOTAL_BYTES) -> str:
         """One text blob the reviewers read, with clear file markers."""
@@ -82,19 +83,49 @@ def from_path(path: str | Path) -> Repo:
     return Repo(name=root.name, root=root, files=files, total_bytes=total)
 
 
-GITHUB = re.compile(r"github\.com/([^/]+)/([^/#?]+?)(?:\.git)?/?$", re.I)
+GITHUB = re.compile(
+    r"github\.com/([^/\s]+)/([^/#?\s]+?)(?:\.git)?(?:/tree/([^/#?\s]+)((?:/[^#?\s]*)?))?/?(?:[#?].*)?$", re.I)
+
+
+def parse_github(url: str) -> tuple[str, str, str | None, str]:
+    """owner, repo, branch (None = try main then master), sub-folder ('' = whole repo).
+
+    Accepts what the browser shows when you open a folder on GitHub:
+    github.com/owner/repo/tree/main/shorts/gomgom"""
+    m = GITHUB.search(url.strip())
+    if not m:
+        raise ValueError(f"not a GitHub repo URL: {url}")
+    owner, name, branch, sub = m.group(1), m.group(2), m.group(3), (m.group(4) or "")
+    parts = [p for p in sub.strip("/").split("/") if p]
+    if any(p in ("..", ".") for p in parts):
+        raise ValueError("that folder path is not allowed")
+    return owner, name, branch, "/".join(parts)
+
+
+def locate(src: Path, url: str) -> Repo:
+    """The downloaded copy under src, narrowed to the requested folder."""
+    owner, name, _, sub = parse_github(url)
+    inner = next(d for d in src.iterdir() if d.is_dir())
+    root = (inner / sub).resolve() if sub else inner
+    if sub and (inner.resolve() not in root.parents or not root.is_dir()):
+        raise ValueError(f"no folder '{sub}' in {owner}/{name}")
+    repo = from_path(root)
+    repo.name = f"{owner}/{name}" + (f"/{sub}" if sub else "")
+    repo.top = inner if sub else None
+    return repo
 
 
 def from_github(url: str, dest: Path) -> Repo:
     """Download a public repo zipball (no token, no git needed)."""
-    m = GITHUB.search(url.strip())
-    if not m:
-        raise ValueError(f"not a GitHub repo URL: {url}")
-    owner, name = m.group(1), m.group(2)
+    owner, name, branch, sub = parse_github(url)
     dest.mkdir(parents=True, exist_ok=True)
+    if sub:  # one folder: fetch its code, not the whole repository
+        from polyjury import github_folder
+        github_folder.fetch(owner, name, branch, sub, dest)
+        return locate(dest, url)
     last = None
-    for branch in ("main", "master"):
-        api = f"https://codeload.github.com/{owner}/{name}/zip/refs/heads/{branch}"
+    for ref in ((branch,) if branch else ("main", "master")):
+        api = f"https://codeload.github.com/{owner}/{name}/zip/refs/heads/{ref}"
         try:
             req = urllib.request.Request(api, headers={"User-Agent": "polyjury"})
             blob = urllib.request.urlopen(req, timeout=60).read()
@@ -105,10 +136,7 @@ def from_github(url: str, dest: Path) -> Repo:
         raise ValueError(f"could not download {owner}/{name}: {last!r}")
     with zipfile.ZipFile(io.BytesIO(blob)) as zf:
         zf.extractall(dest)
-    inner = next(d for d in dest.iterdir() if d.is_dir())
-    repo = from_path(inner)
-    repo.name = f"{owner}/{name}"
-    return repo
+    return locate(dest, url)
 
 
 def load(target: str, workdir: Path) -> Repo:
