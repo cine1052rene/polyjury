@@ -7,7 +7,7 @@ import time
 import tempfile
 from pathlib import Path
 
-from polyjury import chair, collect, panel, runner
+from polyjury import chair, collect, panel, proofcheck, runner
 
 CACHE = Path(os.environ.get("POLYJURY_CACHE", Path(tempfile.gettempdir()) / "polyjury-cache"))
 
@@ -58,4 +58,7 @@ def prove(claim: chair.Claim, bundle: str, repo: collect.Repo) -> chair.Claim:
         claim = chair.retry_proof(claim, bundle)
         result = backend.run(claim.script)
         claim.verdict, claim.evidence, claim.runner = result.verdict, result.output, result.runner
+    # the chair's own KIND label is a claim too: a proof that never ran the repo is a reading
+    if claim.proof_kind == "dynamic" and not proofcheck.runs_repo_code(claim.script, repo.files):
+        claim.proof_kind = "static"
     return claim

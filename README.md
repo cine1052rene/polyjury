@@ -36,6 +36,10 @@ repository cannot point pip at a URL of its own choosing.
 While you wait for Sandboxes beta access, `--allow-local-exec` runs proofs in a subprocess
 instead. Use it only on code you already trust.
 
+A proof only counts as *ran it* if the script really imports or executes the repository's
+code. The chair labels its own proofs, and a label is not evidence: a script that greps the
+source and prints REPRODUCED is reported as a reading (`polyjury/proofcheck.py`).
+
 ## Run it
 
 ```bash
@@ -49,6 +53,30 @@ python scripts/polyjury_run.py https://github.com/owner/repo
 uvicorn app.server:app --reload
 ```
 
+## Use it from your AI (Claude Code, Codex)
+
+`clients/polyjury_mcp.py` is a single-file MCP server, standard library only. It drives the
+public site step by step, so your assistant gets the same verdict the web page shows. Point it
+at a repository or at one folder (`https://github.com/owner/repo/tree/main/some/folder`).
+
+```bash
+# Claude Code
+claude mcp add polyjury -- python /path/to/clients/polyjury_mcp.py
+
+# Codex: ~/.codex/config.toml
+[mcp_servers.polyjury]
+command = "python"
+args = ["/path/to/clients/polyjury_mcp.py"]
+tool_timeout_sec = 600
+
+# or without an assistant
+python clients/polyjury_mcp.py --once https://github.com/owner/repo/tree/main/some/folder
+```
+
+Then ask: *"Run polyjury_verify on my repo and fix only what it confirmed."* It runs on the
+demo's credits, so it reads public GitHub code only. Set `POLYJURY_URL` to use your own
+deployment.
+
 ## How it is put together
 
 | Module | Job |
@@ -57,6 +85,9 @@ uvicorn app.server:app --reload
 | `polyjury/panel.py` | jurors review in parallel; prose answers are normalised to JSON |
 | `polyjury/chair.py` | Nemotron merges claims, writes each proof, repairs it if it will not parse |
 | `polyjury/runner.py` | Sandboxes, or a local subprocess when you ask for it |
+| `polyjury/proofcheck.py` | checks that a "ran it" proof really ran the repository's code |
+| `polyjury/github_folder.py` | fetches one folder of a repository instead of the whole zipball |
+| `clients/polyjury_mcp.py` | MCP server for Claude Code, Codex and other assistants |
 | `polyjury/sources.py` | Tavily finds the standard or documentation that names the defect |
 | `polyjury/report.py` | the verdicts, plus a prompt you can paste back to the AI that wrote the code |
 | `polyjury/llm.py` | one place that talks to Token Factory |

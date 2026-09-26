@@ -100,6 +100,8 @@ def _report(repo: dict, jurors: int, n_findings: int, claims: list[dict], prompt
             label = "LIKELY (read, not run)"
         lines += [f"## [{label}] {c.get('title', '')}",
                   f"- where: {c.get('file', '')} {c.get('where') or ''}".rstrip(),
+                  f"- what breaks: {c.get('what_breaks') or ''}",
+                  f"- raised by: {', '.join(c.get('models') or []) or 'n/a'}",
                   f"- ran in: {c.get('runner') or 'not run'}",
                   f"- what the run shows: {c.get('what_it_proves') or ''}",
                   "```", (c.get("evidence") or "no output")[-1500:], "```", ""]
