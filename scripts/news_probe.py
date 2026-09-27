@@ -76,6 +76,12 @@ Rules:
 {sources}
 - Print every URL you downloaded, the rows or values you used, and the computed ratio.
 - A ratio of about 3x or 10x is what the claim asserts; compare against it explicitly.
+- Sources write minus as \u2212 or \u2013; replace them with '-' before parsing or searching numbers.
+- With no raw dataset, the quoted published result is the evidence: a figure a statistics office,
+  regulator or court reports, or an effect size with its confidence interval from a review. Parse
+  it from the source file and compare it with the sub-claim (e.g. an odds ratio whose interval
+  includes or lies below 1 does not show an increase). Lacking rows to recompute is not by itself
+  a reason for INCONCLUSIVE.
 - If a download fails or the data cannot answer the question, say so: that is INCONCLUSIVE.
 - Wrap everything in try/except so the script always answers.
 - The LAST line must be exactly one of:
@@ -197,6 +203,8 @@ def unused_numbers(quotes: list[dict], output: str) -> list[str]:
         return []  # nothing was computed: locating the passage is the whole proof
     missing = []
     for q in quotes:
+        if str(q.get("file", "")).startswith("/work/data/"):
+            continue  # a dataset is recomputed from, not quoted: its header rows prove nothing
         # numbers inside links are addresses, not data
         nums = _numbers(LINK.sub(" ", q.get("text", "")))
         used = [n for n in nums if any(abs(n - s) <= 1e-6 + 0.001 * abs(n) for s in seen)]
@@ -249,7 +257,8 @@ the original claim holds on that point and REFUTED means it fails. Never turn a 
 document reports into a sub-claim by itself ("asthma prevalence is 6.7%" tests nothing); use it
 as input to a comparison the claim makes. When the claim's key term has no agreed measure,
 say so in the assertion ("taking 'sickest' as X, ...") rather than inventing a precise one.
-For every sub-claim copy, character for character, the short passages (under 300 characters
+A comparison needs a quote for EVERY quantity it compares (both heights, both rates): the
+proof can read only the passages you quote. For every sub-claim copy, character for character, the short passages (under 300 characters
 each) that hold the numbers it needs, with the FILE they are in. If the documents hold nothing
 for a part of the claim, keep that part as its own sub-claim with no quotes, so it is reported
 as unsettled instead of silently disappearing.
@@ -350,8 +359,11 @@ def rescope(claim: str, subs: list[dict], docs: dict[str, bytes], tiers: dict[st
                 continue
             # the chair joins passages with "..."; every piece must be in the file
             pieces = [_flat(p) for p in re.split(r"\.\.\.|…", q.get("text", "")) if len(_flat(p)) >= 12]
-            if pieces and all(p in text.get(q.get("file", ""), "") for p in pieces):
-                kept.append(q)
+            # the chair sometimes names the wrong file; the quote still counts if it is verbatim
+            # in one of the files we have
+            hits = [f for f in [q.get("file", "")] + list(text) if pieces and all(p in text.get(f, "") for p in pieces)]
+            if hits:
+                kept.append({**q, "file": hits[0]})
             else:
                 lost.append(q)
         s["quotes"], s["rejected_quotes"] = kept, lost
@@ -373,6 +385,10 @@ def prove(sub: dict, claim: str, docs: dict[str, bytes] | None = None) -> dict:
     found = search(f"{sub.get('dataset','')} {sub['assertion']} official statistics data", 6, official=True)
     sources = fmt(found) or "(search found nothing; use well-known official URLs)"
     if docs:
+        # the proof may read only what the chair quoted, plus datasets: a script left alone with
+        # every file finds a forum post's number and quietly computes from that
+        quoted = {q.get("file") for q in sub.get("quotes") or []}
+        docs = {k: v for k, v in docs.items() if k in quoted or k.startswith("/work/data/")}
         sources += "\n\nDOCUMENTS ON DISK:\n" + doc_index(docs)
     script, proves = write_proof(sub, claim, sources)
     verdict, output = run_in_sandbox(script, docs) if script else ("INCONCLUSIVE", "no script written")

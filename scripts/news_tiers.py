@@ -169,29 +169,42 @@ mentioning the same names or words (a catalogue entry, a guide, an unrelated top
 JSON only: {"direct":[numbers of the excerpts that do]}"""
 
 
-def _excerpt(text: str, names: set[str]) -> str:
-    low = text.lower()
-    hits = sorted({low.find(n) for n in names if low.find(n) >= 0})[:2]
-    if not hits:
-        return text[:900]
-    return " ... ".join(text[max(0, h - 350):h + 550] for h in hits)
+def _excerpt(text: str, terms: tuple[set[str], set[str]], claim: str = "", size: int = 700) -> str:
+    """The two passages densest in the claim's words and numbers. The first mention of a name is
+    usually the page title or site banner, not the evidence."""
+    common, names = terms
+    nums = set(re.findall(r"\d+(?:\.\d+)?", claim))
+    chunks = [text[i:i + size] for i in range(0, min(len(text), 120000), size // 2)]
+
+    def score(c: str) -> int:
+        low = c.lower()
+        return (3 * sum(n in low for n in names) + sum(w in low for w in common)
+                + 3 * sum(bool(re.search(rf"(?<![\d.]){re.escape(n)}(?![\d])", c)) for n in nums))
+
+    best = sorted(sorted(range(len(chunks)), key=lambda i: -score(chunks[i]))[:2])
+    return " ... ".join(chunks[i] for i in best) if chunks else ""
 
 
-def keep_direct(claim: str, found: list[tuple[str, str]], names: set[str]) -> list[int]:
+def keep_direct(claim: str, found: list[tuple[str, str]], terms: tuple[set[str], set[str]]) -> tuple[list[int], bool]:
     """Word overlap cannot tell a library catalogue that names Napoleon from a record of his
-    height. One short call to the chair can."""
+    height. One short call to the chair can. Returns the kept indices and whether the check ran."""
     if not found:
-        return []
-    listing = "\n\n".join(f"[{i}] {u}\n{' '.join(_excerpt(t, names).split())}" for i, (u, t) in enumerate(found))
-    try:
-        raw, _ = chat(RELEVANT_PROMPT, f"CLAIM: {claim}\n\n{listing[:40000]}", think=False,
-                      max_tokens=200, temperature=0, timeout=90)
-        picked = (parse_json(raw) or {}).get("direct")
-    except Exception:  # noqa: BLE001
-        picked = None
-    if not isinstance(picked, list):
-        return list(range(len(found)))  # the check failed: keep everything rather than lose evidence
-    return [i for i in picked if isinstance(i, int) and 0 <= i < len(found)]
+        return [], True
+    listing = "\n\n".join(f"[{i}] {u}\n{' '.join(_excerpt(t, terms, claim).split())}" for i, (u, t) in enumerate(found))
+    for _ in range(2):
+        try:
+            raw, _ = chat(RELEVANT_PROMPT, f"CLAIM: {claim}\n\n{listing[:40000]}", think=False,
+                          max_tokens=300, temperature=0, timeout=90)
+            got = parse_json(raw)
+            picked = got if isinstance(got, list) else (got or {}).get("direct")  # "[]" also answers
+            why = f"unreadable answer {(raw or '')[:80]!r}"
+        except Exception as exc:  # noqa: BLE001
+            picked, why = None, f"{type(exc).__name__}: {str(exc)[:80]}"
+        if isinstance(picked, list):
+            return [i for i in picked if isinstance(i, int) and 0 <= i < len(found)], True
+    print("    relevance check failed:", why)
+    # the check failed: keep the documents rather than lose evidence, but do not trust them
+    return list(range(len(found))), False
 
 
 def gather_tiered(profile: dict, claim: str = "", enough: int = 3, per_tier: int = 5) -> tuple[dict[str, bytes], list[str]]:
@@ -209,12 +222,14 @@ def gather_tiered(profile: dict, claim: str = "", enough: int = 3, per_tier: int
                     continue
                 seen.add(url)
                 found.append((url, text))
-        direct = keep_direct(claim, found, terms[1])[:per_tier]
+        direct, checked = keep_direct(claim, found, terms)
+        direct = direct[:per_tier]
         for i in direct:
             url, text = found[i]
             docs[f"/work/sources/T{tier}-{len(docs):02d}.txt"] = (url + "\n" + text[:60000]).encode("utf-8")
-        got = len(direct)
-        log.append(f"tier {tier} ({len(domains)} domains): {len(found)} on topic, {got} with direct evidence")
+        got = len(direct) if checked else 0  # unchecked documents never make a tier "enough"
+        log.append(f"tier {tier} ({len(domains)} domains): {len(found)} on topic, "
+                   + (f"{got} with direct evidence" if checked else f"relevance check failed, kept {len(direct)} unchecked"))
         if tier == 1 and got >= enough:
             log.append("tier 1 was enough; tier 2 not searched")
             break

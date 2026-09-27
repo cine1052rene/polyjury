@@ -100,7 +100,7 @@ def candidates(claim: str, docs: dict[str, bytes]) -> tuple[list[str], str]:
 
 
 STOP = {"the", "and", "for", "with", "that", "from", "percent", "were", "was", "are", "than", "into",
-        "cars", "data", "up", "at", "of", "in", "to", "a", "an", "is", "on", "by", "see", "all"}
+        "cars", "data", "real", "world", "time", "his", "her", "up", "at", "of", "in", "to", "a", "an", "is", "on", "by", "see", "all"}
 
 
 def _words(text: str) -> set[str]:
@@ -119,7 +119,8 @@ def fetch(urls: list[str], topic: str = "") -> dict[str, bytes]:
         if not body:
             continue
         head = body[:2000].decode("utf-8", "replace") if u.lower().endswith((".csv", ".tsv")) else ""
-        if want and not (want & _words(u + " " + head)):
+        # one shared word lets "real-world" match a world-airports dataset; ask for two
+        if want and len(want & _words(u + " " + head)) < 2:
             print(f"    skipped unrelated data file: {u}")
             continue
         name = re.sub(r"[^A-Za-z0-9._-]", "_", urlparse(u).path.rsplit("/", 1)[-1])[:80] or "data"
