@@ -176,9 +176,13 @@ def unused_numbers(quotes: list[dict], output: str) -> list[str]:
     seen = _numbers("\n".join(own))
     missing = []
     for q in quotes:
-        for n in _numbers(q.get("text", "")):
-            if not any(abs(n - s) <= 1e-6 + 0.001 * abs(n) for s in seen):
-                missing.append(f"{n:g}")
+        # numbers inside links are addresses, not data
+        nums = _numbers(LINK.sub(" ", q.get("text", "")))
+        used = [n for n in nums if any(abs(n - s) <= 1e-6 + 0.001 * abs(n) for s in seen)]
+        # a passage also carries units, years and error bars the proof rightly ignores; it is a
+        # wrong-row read only when none of the passage's numbers made it into the computation
+        if nums and not used:
+            missing += [f"{n:g}" for n in nums]
     return missing
 
 
@@ -219,6 +223,11 @@ behind the figures when one was found. Rewrite the sub-claims (at most 5) so eac
 settled by recomputing numbers these documents actually contain: the claimed figure computed
 from the original data the way the claim did, the same figure from corrected or complete data,
 and how far off the baseline was. Keep the claim's own wording of what is asserted.
+Every sub-claim must be something the ORIGINAL CLAIM asserts, phrased so that SUPPORTED means
+the original claim holds on that point and REFUTED means it fails. Never turn a number that a
+document reports into a sub-claim by itself ("asthma prevalence is 6.7%" tests nothing); use it
+as input to a comparison the claim makes. When the claim's key term has no agreed measure,
+say so in the assertion ("taking 'sickest' as X, ...") rather than inventing a precise one.
 For every sub-claim copy, character for character, the short passages (under 300 characters
 each) that hold the numbers it needs, with the FILE they are in. If the documents hold nothing
 for a part of the claim, keep that part as its own sub-claim with no quotes, so it is reported
@@ -275,7 +284,7 @@ def _flat(text: str) -> str:
     return re.sub(r"[^0-9a-z%.]+", " ", text.lower()).strip()
 
 
-def rescope(subs: list[dict], docs: dict[str, bytes]) -> list[dict]:
+def rescope(claim: str, subs: list[dict], docs: dict[str, bytes]) -> list[dict]:
     """Sub-claims written before reading the sources ask for data nobody has on disk. Each new
     sub-claim must quote the document text holding its numbers; a quote that is not really in
     that file is thrown away, so nothing gets computed from numbers the chair imagined."""
@@ -283,7 +292,7 @@ def rescope(subs: list[dict], docs: dict[str, bytes]) -> list[dict]:
     for name, body in docs.items():
         size = 12000 if "/p" in name else 2500
         parts.append(f"=== FILE {name}\n{body.decode('utf-8', 'replace')[:size]}")
-    raw, _ = chat(RESCOPE_PROMPT, f"SUB-CLAIMS:\n{json.dumps(subs, ensure_ascii=False)}\n\nDOCUMENTS:\n" +
+    raw, _ = chat(RESCOPE_PROMPT, f"ORIGINAL CLAIM: {claim}\n\nSUB-CLAIMS:\n{json.dumps(subs, ensure_ascii=False)}\n\nDOCUMENTS:\n" +
                   "\n\n".join(parts)[:70000], think=True, max_tokens=7000, temperature=0, timeout=200)
     new = [s for s in (parse_json(raw) or {}).get("subclaims", []) if isinstance(s, dict) and s.get("assertion")][:5]
     if not new:
@@ -370,7 +379,7 @@ def main() -> None:
     print("    following links to the original document")
     docs.update(follow_primary(args.claim, docs))
     print(doc_index(docs))
-    subs = rescope(subs, docs)
+    subs = rescope(args.claim, subs, docs)
     print("    sub-claims after reading the sources:")
     for s in subs:
         print("    -", s["assertion"][:110])
