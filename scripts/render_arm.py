@@ -22,7 +22,7 @@ from build_demo_video import ACC, INK, MUT, font  # noqa: E402
 W, H, FPS = 1280, 720, 25
 JOINT, PAIR = "elbow_flex", ("gripper_link", "shoulder_link")
 SWEEP_S, HOLD_S = 9.0, 3.0
-CAM = [60, -18, 0.42, 0.0, 0.0, 0.175]  # azimuth, elevation, distance, lookat xyz
+CAM = [60, -18, 0.46, 0.0, 0.0, 0.155]  # azimuth, elevation, distance, lookat xyz
 GREY, RED, DIM = (0.78, 0.80, 0.84, 1.0), (0.86, 0.22, 0.22, 1.0), (0.45, 0.47, 0.52, 1.0)
 
 
