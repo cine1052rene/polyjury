@@ -7,7 +7,7 @@ import time
 import tempfile
 from pathlib import Path
 
-from polyjury import chair, collect, panel, proofcheck, runner
+from polyjury import chair, collect, panel, proofcheck, robot, runner
 
 CACHE = Path(os.environ.get("POLYJURY_CACHE", Path(tempfile.gettempdir()) / "polyjury-cache"))
 
@@ -34,7 +34,7 @@ def get_repo(target: str, bucket: str = "") -> collect.Repo:
 
 
 def review_one(bundle: str, model: str) -> panel.Review:
-    return panel._one(model, bundle)
+    return panel._one_with_retry(model, bundle)
 
 
 def merge(findings: list[dict]) -> tuple[list[chair.Claim], list[str]]:
@@ -44,7 +44,14 @@ def merge(findings: list[dict]) -> tuple[list[chair.Claim], list[str]]:
 def prove(claim: chair.Claim, bundle: str, repo: collect.Repo) -> chair.Claim:
     """Write the proof, then run it where it is safe to run."""
     started = time.time()
-    claim = chair._write_proof(claim, bundle)
+    simulated = robot.SIM_MODEL in claim.models
+    if simulated:  # rebuilt here from the template: whatever script the client sent is ignored
+        claim.script = robot.sim_script(repo.root, repo.files, claim.file)
+        claim.proof_kind, claim.what_it_proves = "dynamic", "MuJoCo sweeps every joint alone from home; exact meshes confirm each contact"
+        if not claim.script:
+            claim.evidence = "that file is not a robot description in this repository"
+    else:
+        claim = chair._write_proof(claim, bundle)
     if not claim.script:
         claim.verdict, claim.runner = "UNVERIFIED", "none"
         return claim
@@ -57,7 +64,7 @@ def prove(claim: chair.Claim, bundle: str, repo: collect.Repo) -> chair.Claim:
     claim.verdict, claim.evidence, claim.runner = result.verdict, result.output, result.runner
     # a second attempt costs another proof and another VM: skip it when the first
     # already used most of the 300 s a serverless call gets
-    if claim.verdict == "UNVERIFIED" and time.time() - started < 110:
+    if claim.verdict == "UNVERIFIED" and not simulated and time.time() - started < 110:
         claim = chair.retry_proof(claim, bundle)
         result = backend.run(claim.script)
         claim.verdict, claim.evidence, claim.runner = result.verdict, result.output, result.runner

@@ -43,7 +43,8 @@ class Repo:
         """One text blob the reviewers read, with clear file markers."""
         out, used = [], 0
         from polyjury import tools
-        note = tools.bundle_note(self.root, self.files + self.data)
+        from polyjury import robot
+        note = robot.note(self.root, self.files) + tools.bundle_note(self.root, self.files + self.data)
         note += tools.font_note(tools.font_names(self.root, self.files + self.data))
         if note:
             out.append(note)
@@ -125,6 +126,11 @@ def _pick(root: Path) -> tuple[list[Path], int]:
         if size == 0 or size > MAX_FILE_BYTES * 4:
             continue
         cands.append((0 if HOT.search(rel.as_posix()) else 1, -size, rel))
+    from polyjury import robot
+    descs = [p.relative_to(root) for p in root.rglob("*") if robot.is_description(p)
+             and not any(part in SKIP_DIR or part.startswith(".") for part in p.relative_to(root).parts[:-1])]
+    descs.sort(key=lambda rel: (len(rel.parts), rel.as_posix()))
+    cands += [(0, -(root / rel).stat().st_size, rel) for rel in descs[:robot.MAX_DESCS]]
     cands.sort()
     picked = [rel for _, _, rel in cands[:MAX_FILES]]
     total = sum((root / rel).stat().st_size for rel in picked)
@@ -138,7 +144,10 @@ def from_path(path: str | Path) -> Repo:
     files, total = _pick(root)
     if not files:
         raise ValueError("no reviewable source files found")
-    return Repo(name=root.name, root=root, files=files, total_bytes=total, data=_pick_data(root) + _pick_support(root, files))
+    from polyjury import robot
+    data = [rel for rel in _pick_data(root) if rel not in files]
+    data += _pick_support(root, files) + robot.meshes(root, robot.descriptions(root, files))
+    return Repo(name=root.name, root=root, files=files, total_bytes=total, data=data)
 
 
 GITHUB = re.compile(

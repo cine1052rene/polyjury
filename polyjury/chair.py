@@ -39,7 +39,8 @@ Rules:
   acceptable when the claim is purely about how the code is written.
 - The repository's declared dependencies are already installed. Never pip install anything
   yourself; a missing package means INCONCLUSIVE.
-- Standard library plus whatever the repository already imports. No network calls, no writes
+- Standard library plus whatever the repository already imports (and, when ROBOT SIMULATION is
+  listed, the packages and the _pj_robot helper it names). No network calls, no writes
   outside the working directory, no sleep longer than 2 seconds.
 - Files listed under ALSO PRESENT exist at those paths, so run the code on its real inputs.
   Large media (video, audio, images, fonts), API keys and the network are NOT available, and
@@ -108,7 +109,9 @@ def merge(findings: list[dict]) -> tuple[list[Claim], list[str]]:
     # stable order: agreement first, then severity, so reruns keep the same claims on top
     rank = {"high": 0, "med": 1, "low": 2}
     claims.sort(key=lambda c: (-len(set(c.models)), rank.get(c.severity, 1)))
-    return claims[:8], list(data.get("dropped", []))
+    from polyjury import robot  # geometry the jurors cannot see by reading: simulate it
+    sim = [Claim(**c) for c in robot.sim_claims(findings)]
+    return sim + claims[:8], list(data.get("dropped", []))
 
 
 def _write_proof(claim: Claim, context: str) -> Claim:
@@ -198,7 +201,12 @@ verdict it gave. Does the printed evidence support that verdict? A script that p
 of the defect and then says NOT_REPRODUCED, or says REPRODUCED without showing the defect
 happen, contradicts itself. So does a script that crashed for an unrelated reason (a missing
 file, font or program) before it reached the claimed behaviour and then gave any verdict other
-than INCONCLUSIVE. Answer with one line: CONSISTENT, or CONTRADICTS: <why, briefly>."""
+than INCONCLUSIVE. REPRODUCED also contradicts the evidence when the output only shows a
+precondition (two files share a name, an attribute has some value, a pattern appears in the
+text) and never shows the consequence described in WHAT BREAKS actually happening, or when the
+error it cites came from the script's own setup (a file it wrote or moved itself, a path it
+made up) rather than from the code under test.
+Answer with one line: CONSISTENT, or CONTRADICTS: <why, briefly>."""
 
 
 def audit(claim: Claim) -> str:
@@ -208,8 +216,12 @@ def audit(claim: Claim) -> str:
     task = ("CLAIM: " + claim.title + chr(10) + "WHAT BREAKS: " + claim.what_breaks + chr(10)
             + "VERDICT: " + claim.verdict + chr(10) + "PRINTED:" + chr(10) + claim.evidence[-3000:])
     try:
-        raw, _ = chat(AUDIT_PROMPT, task, think=False, max_tokens=200, temperature=0, timeout=60)
+        # thinking on: without it the audit passed "both files have a joint named gripper" as
+        # proof of controller confusion; with it, 3-6 s per claim (measured 2026-09-27)
+        raw, _ = chat(AUDIT_PROMPT, task, think=True, max_tokens=4000, temperature=0, timeout=90)
     except Exception:  # noqa: BLE001
         return ""
-    line = (raw or "").strip().splitlines()[0] if (raw or "").strip() else ""
+    lines = [ln.strip() for ln in (raw or "").splitlines()
+             if ln.strip().upper().startswith(("CONSISTENT", "CONTRADICTS"))]
+    line = lines[-1] if lines else ""
     return line.split(":", 1)[1].strip() or "the evidence does not match the verdict" if line.upper().startswith("CONTRADICTS") else ""

@@ -46,6 +46,25 @@ A proof only counts as *ran it* if the script really imports or executes the rep
 code. The chair labels its own proofs, and a label is not evidence: a script that greps the
 source and prints REPRODUCED is reported as a reading (`polyjury/proofcheck.py`).
 
+## Robot descriptions: proved by simulation
+
+A URDF or MJCF file is code too: a wrong joint limit ships a robot that drives itself into its
+own frame. When a repository holds one, jurors review it like any other file, and the sandbox
+also gets MuJoCo, trimesh and manifold3d, the meshes the description references, and a tested
+helper (`polyjury/robot_helper.py`) for home-pose contacts, single-joint sweeps, collision
+onset, URDF-vs-MJCF limit comparison and exact-mesh overlap (MuJoCo collides convex hulls, so
+every hull contact is re-checked on the real triangles).
+
+Jurors read text, and a collision is geometry — on
+[SO-ARM100](https://github.com/TheRobotStudio/SO-ARM100/tree/main/Simulation/SO101) no juror
+found one. So Polyjury adds its own **simulation check**: every joint is swept alone from the
+home pose, inside its own limits. Its script is a fixed template rebuilt on the server, so a
+client can never send code to run. On SO101 (`so101_new_calib.urdf`, measured 2026-09-27)
+`elbow_flex` alone drives `gripper_link` into `shoulder_link` from 1.51 rad (hull) / about
+1.49 rad (exact meshes), well inside its 1.69 rad limit: 12,393 mm³ of overlap at the limit.
+A whole-arm grid always finds collisions on a 6-DOF arm, which proves nothing; only home-pose
+and single-joint collisions are reported.
+
 ## Run it
 
 ```bash
@@ -114,7 +133,8 @@ picked from the combined pool.
 
 ## Models
 
-Jurors: `deepseek-ai/DeepSeek-V4-Pro`, `Qwen/Qwen3.5-397B-A17B`, `openai/gpt-oss-120b`.
+Jurors: `deepseek-ai/DeepSeek-V4-Pro`, `Qwen/Qwen3-235B-A22B-Instruct-2507`, `openai/gpt-oss-120b`
+(Qwen3.5-397B until Nebius retired it on 2026-09-27; the recorded verdict and the demo video used it).
 Presiding: `nvidia/nemotron-3-super-120b-a12b` with thinking enabled — merging contradictory
 reviews and writing a falsifiable test is judgement, not retrieval.
 

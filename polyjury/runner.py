@@ -182,7 +182,9 @@ class SandboxRunner:
         # a sub-folder usually has no manifest of its own: fall back to the repo's
         self.deps = (declared_deps(self.root) or (declared_deps(Path(top)) if top else [])
                      or inferred_deps(self.root, files))
-        from polyjury import tools
+        from polyjury import robot, tools
+        self.robot = robot.packages(self.root, files)
+        self.deps = list(dict.fromkeys(self.deps + self.robot))
         self.apt = tools.packages(self.root, files)
         self.fonts = tools.font_names(self.root, files) if "fonts-nanum" in self.apt else []
         # images.use() makes no API call, so prove access before we promise anything.
@@ -200,9 +202,13 @@ class SandboxRunner:
             return "; ".join(steps + [run])
         pip = ("timeout %d pip install -q --disable-pip-version-check --no-input "
                "--root-user-action=ignore %s > /tmp/pip.log 2>&1"
-               % (INSTALL_TIMEOUT, " ".join(shlex.quote(d) for d in self.deps)))
+               % (self._install_timeout(), " ".join(shlex.quote(d) for d in self.deps)))
         pip = f"{pip} || {{ echo '[polyjury] installing the declared dependencies failed:'; tail -n 4 /tmp/pip.log; }}"
         return "; ".join(steps + [pip, run])
+
+    def _install_timeout(self) -> int:
+        from polyjury import robot
+        return robot.INSTALL_TIMEOUT if self.robot else INSTALL_TIMEOUT
 
     def _remote_path(self) -> str:
         """The VM is Linux whatever the host is: build POSIX paths, but look for
@@ -214,6 +220,9 @@ class SandboxRunner:
         payload: dict[str, Path | bytes] = {"/work/proof.py": script.encode("utf-8")}
         for rel in self.files:
             payload[f"/work/{rel.as_posix()}"] = self.root / rel
+        if self.robot:
+            from polyjury import robot
+            payload[robot.REMOTE_HELPER] = robot.helper_source()
         return payload
 
     def run(self, script: str) -> RunResult:
@@ -223,7 +232,7 @@ class SandboxRunner:
             result = self.image.run("sh", args=["-c", self._command()], cwd="/work",
                                     env={"PYTHONPATH": self._remote_path(),
                                          "PYTHONIOENCODING": "utf-8"},
-                                    files=self._payload(script), timeout=RUN_TIMEOUT + INSTALL_TIMEOUT + 90,
+                                    files=self._payload(script), timeout=RUN_TIMEOUT + self._install_timeout() + 90,
                                     disposable=True).wait()
         except Exception as exc:  # noqa: BLE001
             return RunResult("UNVERIFIED", f"sandbox error: {type(exc).__name__}: {exc}"[:500], self.name)

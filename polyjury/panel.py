@@ -9,9 +9,11 @@ from polyjury.llm import chat, parse_json
 
 # Measured 2026-09-16 on our own code: these two answer fast and return valid JSON.
 # GLM-5.3 returned an empty body and Kimi-K3 timed out, so they are off by default.
+# 2026-09-27: Nebius retired Qwen3.5-397B (404). Qwen3-235B-2507 replaced it: 5 valid findings
+# in 10 s on fastapi-cli, where Kimi-K2.7-Code and MiniMax-M3 returned empty bodies.
 REVIEWERS = [
     "deepseek-ai/DeepSeek-V4-Pro",
-    "Qwen/Qwen3.5-397B-A17B",
+    "Qwen/Qwen3-235B-A22B-Instruct-2507",
     "openai/gpt-oss-120b",
 ]
 TIMEOUT = 90.0
@@ -48,7 +50,7 @@ class Review:
 
 # Notes about the proof sandbox are for the chair. Jurors who read "the repository does not
 # include the font" spent every finding on it, so they get the code alone.
-SANDBOX_NOTES = ("### SYSTEM TOOLS", "### FONTS", "### ALSO PRESENT")
+SANDBOX_NOTES = ("### SYSTEM TOOLS", "### FONTS", "### ALSO PRESENT", "### ROBOT SIMULATION")
 
 
 def code_only(bundle: str) -> str:
@@ -84,11 +86,22 @@ def _one(model: str, bundle: str) -> Review:
     return Review(model=model, findings=clean, seconds=sec, repaired=repaired)
 
 
+def _one_with_retry(model: str, bundle: str) -> Review:
+    """Measured 2026-09-27: DeepSeek and Qwen each came back empty once in four runs, then
+    answered normally on the next call. One more try beats a panel of two."""
+    first = _one(model, bundle)
+    if first.findings or (first.error and "empty" not in first.error and not first.repaired):
+        return first
+    second = _one(model, bundle)
+    second.seconds = round(first.seconds + second.seconds, 2)
+    return second if second.findings else first
+
+
 def review(bundle: str, models: list[str] | None = None) -> list[Review]:
     """Run every reviewer at the same time on the same code."""
     models = models or REVIEWERS
     with ThreadPoolExecutor(max_workers=len(models)) as pool:
-        return list(pool.map(lambda m: _one(m, bundle), models))
+        return list(pool.map(lambda m: _one_with_retry(m, bundle), models))
 
 
 def summarise(reviews: list[Review]) -> dict:

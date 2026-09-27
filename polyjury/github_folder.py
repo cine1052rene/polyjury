@@ -69,6 +69,23 @@ def fetch(owner: str, name: str, branch: str | None, sub: str, dest: Path) -> No
         rel_top, rel_sub = t["path"], t["path"][len(prefix):] if t["path"].startswith(prefix) else None
         if rel_top in MANIFESTS or (rel_sub in MANIFESTS):
             wanted.append(t["path"])
+    # robot descriptions and meshes; collect.locate() uploads only the meshes they reference
+    from polyjury import robot
+    descs = [t for t in blobs if t["path"].startswith(prefix)
+             and PurePosixPath(t["path"]).suffix.lower() in robot.DESC_EXT
+             and 0 < (t.get("size") or 0) <= robot.MAX_DESC_BYTES]
+    wanted += [t["path"] for t in descs[:40]]
+    if descs:
+        mesh_total = 0
+        meshes = sorted((t for t in blobs if t["path"].startswith(prefix)
+                         and PurePosixPath(t["path"]).suffix.lower() in robot.MESH_EXT),
+                        key=lambda t: t.get("size") or 0)
+        for t in meshes:
+            size = t.get("size") or 0
+            if 0 < size <= robot.MAX_MESH_BYTES and mesh_total + size <= robot.MAX_MESH_TOTAL:
+                wanted.append(t["path"])
+                mesh_total += size
+        ranked += [(0, 0, t["path"]) for t in descs]
     if not ranked:
         raise ValueError(f"'{sub}' has no source files Polyjury can read")
 

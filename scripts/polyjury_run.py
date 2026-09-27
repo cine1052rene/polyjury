@@ -17,6 +17,7 @@ OUT = Path(__file__).resolve().parents[1] / "scratch" / "polyjury"
 
 
 def main() -> None:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser()
     ap.add_argument("target", help="public GitHub repo URL or a local directory")
     ap.add_argument("--allow-local-exec", action="store_true",
