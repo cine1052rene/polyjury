@@ -67,6 +67,8 @@ def _one(model: str, bundle: str) -> Review:
 
     data = parse_json(raw)
     repaired = False
+    if isinstance(data, dict) and data.get("findings") == []:
+        return Review(model=model, seconds=sec)  # "nothing wrong" is an answer, not a failure
     if not (isinstance(data, dict) and data.get("findings")):
         if not raw.strip():
             return Review(model=model, seconds=sec, error="empty response")
@@ -90,7 +92,7 @@ def _one_with_retry(model: str, bundle: str) -> Review:
     """Measured 2026-09-27: DeepSeek and Qwen each came back empty once in four runs, then
     answered normally on the next call. One more try beats a panel of two."""
     first = _one(model, bundle)
-    if first.findings or (first.error and "empty" not in first.error and not first.repaired):
+    if first.findings or not (first.repaired or "empty" in first.error):
         return first
     second = _one(model, bundle)
     second.seconds = round(first.seconds + second.seconds, 2)
