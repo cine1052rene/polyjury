@@ -65,6 +65,35 @@ client can never send code to run. On SO101 (`so101_new_calib.urdf`, measured 20
 A whole-arm grid always finds collisions on a 6-DOF arm, which proves nothing; only home-pose
 and single-joint collisions are reported.
 
+## Fix it, then prove the fix
+
+Finding a defect is half the job. For every claim reproduced by running the code, Polyjury
+writes a patch and runs the same proof again, on a copy of the repository with the patch applied:
+
+1. **Control run.** The proof that reproduced the defect is run again on the untouched code. If it
+   does not reproduce a second time, a fix could not be told apart from luck, and none is offered.
+2. **Patch.** Code: Nemotron rewrites the one file the claim names. Robots: no model is involved —
+   the joint limit is set to the measured first-contact angle minus 0.02 rad.
+3. **Re-prove.** The same proof runs on the patched copy and must now print `NOT_REPRODUCED`; a
+   code patch that fails gets the output back for one more try. Robots repeat until the sweep is
+   clear, up to three rounds, and report the travel the joint gives up.
+4. **Review.** Nemotron reads the diff and rejects a patch that deletes the feature, special-cases
+   the proof's inputs or swallows the error.
+
+`/api/prove` signs every proof it writes and runs; `/api/fix` only re-runs scripts carrying that
+signature, so the browser cannot hand the sandbox code of its own.
+
+Measured 2026-09-28 on the live site: SO101 `so101_new_calib.urdf`, `elbow_flex` upper limit
+1.69 → 1.4901 rad, every joint clear on the re-run, 11.5° of travel given up (fix step 39 s).
+fastapi-cli: a malformed `pyproject.toml` crashed the CLI; the patch catches
+`tomllib.TOMLDecodeError` and the proof no longer reproduces (48 s). An encoding claim was
+patched twice, the proof stayed inconclusive, and it is reported as **not fixed**.
+
+We also tried proving each claim three times with a majority vote. On fastapi-cli it did not
+make verdicts more repeatable (the same 8 claims proved twice: 4/8 identical either way) and one
+claim took 361 s, past the 300 s a serverless call gets, so it is off by default
+(`POLYJURY_PROOFS`, `polyjury/consensus.py`). The control run is what keeps a fix honest.
+
 ## Run it
 
 ```bash
@@ -110,6 +139,7 @@ deployment.
 | `polyjury/panel.py` | jurors review in parallel; prose answers are normalised to JSON |
 | `polyjury/chair.py` | Nemotron merges claims, writes each proof, repairs it if it will not parse |
 | `polyjury/runner.py` | Sandboxes, or a local subprocess when you ask for it |
+| `polyjury/fix_code.py`, `fix_robot.py` | the fix loop: control run, patch, re-prove, review |
 | `polyjury/proofcheck.py` | checks that a "ran it" proof really ran the repository's code |
 | `polyjury/github_folder.py` | fetches one folder of a repository instead of the whole zipball |
 | `clients/polyjury_mcp.py` | MCP server for Claude Code, Codex and other assistants |
