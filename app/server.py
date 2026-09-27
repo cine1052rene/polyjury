@@ -113,7 +113,7 @@ def review(body: ReviewIn, request: Request) -> dict:
         raise HTTPException(400, "Unknown reviewer.")
     r = pipeline.review_one(body.bundle, body.model)
     return {"model": r.model, "findings": r.findings, "seconds": r.seconds,
-            "repaired": r.repaired, "error": r.error}
+            "repaired": r.repaired, "error": r.error, "stood_in_for": r.stood_in_for}
 
 
 @app.post("/api/merge")

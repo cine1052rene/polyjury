@@ -107,7 +107,9 @@ function claimCard(claim, index) {
     </div>
     <p class="why">${safe(claim.what_breaks)}</p>
     <p class="where">${safe(claim.file)} ${claim.where ? "· " + safe(claim.where) : ""}</p>
-    <p class="votes">raised by ${votes} of ${REVIEWERS.length} jurors</p>
+    <p class="votes">${(claim.models || []).includes("polyjury-simulator")
+      ? "raised by Polyjury's own simulation check — jurors read text; a collision is geometry"
+      : `raised by ${votes} of ${REVIEWERS.length} jurors`}</p>
     <div id="proof-${index}"></div>`;
   return el;
 }

@@ -21,7 +21,10 @@ from playwright.sync_api import sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "private" / "press"
 SITE = "https://polyjury.vercel.app/"
-REPO = sys.argv[1] if len(sys.argv) > 1 else "https://github.com/tiangolo/fastapi-cli"
+ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
+REPO = ARGS[0] if ARGS else "https://github.com/tiangolo/fastapi-cli"
+NAME = sys.argv[sys.argv.index("--name") + 1] if "--name" in sys.argv else "live"  # output file prefix
+WRITE_EXAMPLE = "--no-example" not in sys.argv
 SIZE = {"width": 1280, "height": 720}
 LIMIT = 420  # seconds; a verdict normally takes two to three minutes
 
@@ -107,6 +110,14 @@ def main() -> None:
             if opened:
                 opened[0].evaluate("el => window.scrollTo({top: el.getBoundingClientRect().top + scrollY - 140, behavior: 'smooth'})")
             page.wait_for_timeout(5000)
+            # a claim the audit threw out: the run contradicted its own verdict
+            audited = page.evaluate("""() => { const d = [...document.querySelectorAll('.claim details')]
+                .find(x => x.querySelector('pre') && x.querySelector('pre').textContent.includes('marked unverified'));
+                if (!d) return false; d.open = true;
+                window.scrollTo({top: d.getBoundingClientRect().top + scrollY - 140, behavior: 'smooth'}); return true; }""")
+            if audited:
+                mark("open-audit")
+                page.wait_for_timeout(6000)
             mark("final")
             page.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'})")
             page.wait_for_timeout(5000)
@@ -116,13 +127,13 @@ def main() -> None:
         context.close()
         browser.close()
 
-    target = OUT / "live-raw.webm"
+    target = OUT / f"{NAME}-raw.webm"
     shutil.move(str(video), target)
     shutil.rmtree(raw, ignore_errors=True)
-    (OUT / "live-events.json").write_text(json.dumps(events, indent=2), encoding="utf-8")
-    (OUT / "live-calls.json").write_text(json.dumps(calls, ensure_ascii=False, indent=2), encoding="utf-8")
+    (OUT / f"{NAME}-events.json").write_text(json.dumps(events, indent=2), encoding="utf-8")
+    (OUT / f"{NAME}-calls.json").write_text(json.dumps(calls, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"recorded {target} ({target.stat().st_size // 1024} KB)")
-    if seen_done:
+    if seen_done and WRITE_EXAMPLE:
         write_example(calls)
 
 

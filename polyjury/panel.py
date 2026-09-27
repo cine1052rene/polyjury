@@ -17,6 +17,13 @@ REVIEWERS = [
     "openai/gpt-oss-120b",
 ]
 TIMEOUT = 90.0
+# Stand-ins, tried in order when a juror above has been retired (Nebius removed Qwen3.5-397B
+# without notice on 2026-09-27 and the site ran on two jurors until someone noticed; it was back
+# the same evening). Hybrid models must be called with thinking off: with it on they spend the
+# whole 8,000-token budget thinking and return no answer (measured on the fastapi-cli bundle).
+BACKUP = ["Qwen/Qwen3.5-397B-A17B", "NousResearch/Hermes-4-405B", "Qwen/Qwen3-30B-A3B-Instruct-2507",
+          "zai-org/GLM-5.2", "Qwen/Qwen3.8-27B"]
+RETIRED = ("does not exist", "NotFoundError", "not found", "404")
 
 REVIEW_PROMPT = """You review code that an AI assistant wrote for someone who is not a professional developer and is about to publish it on the public internet.
 
@@ -46,6 +53,7 @@ class Review:
     seconds: float = 0.0
     repaired: bool = False
     error: str = ""
+    stood_in_for: str = ""   # the retired juror this model replaced, if any
 
 
 # Notes about the proof sandbox are for the chair. Jurors who read "the repository does not
@@ -58,9 +66,9 @@ def code_only(bundle: str) -> str:
     return "\n".join(ln for ln in lines if not ln.startswith(SANDBOX_NOTES)).lstrip()
 
 
-def _one(model: str, bundle: str) -> Review:
+def _one(model: str, bundle: str, think: bool | None = None) -> Review:
     try:
-        raw, sec = chat(REVIEW_PROMPT, code_only(bundle), think=None, model=model,
+        raw, sec = chat(REVIEW_PROMPT, code_only(bundle), think=think, model=model,
                         max_tokens=8000, temperature=0, timeout=TIMEOUT)
     except Exception as exc:  # noqa: BLE001
         return Review(model=model, error=f"{type(exc).__name__}: {exc}"[:200])
@@ -92,6 +100,15 @@ def _one_with_retry(model: str, bundle: str) -> Review:
     """Measured 2026-09-27: DeepSeek and Qwen each came back empty once in four runs, then
     answered normally on the next call. One more try beats a panel of two."""
     first = _one(model, bundle)
+    if first.error and any(k in first.error for k in RETIRED):
+        for alt in BACKUP:
+            if alt in REVIEWERS:
+                continue
+            stand_in = _one(alt, bundle, think=False)
+            if not (stand_in.error and any(k in stand_in.error for k in RETIRED)):
+                stand_in.stood_in_for = model
+                return stand_in
+        return first
     if first.findings or not (first.repaired or "empty" in first.error):
         return first
     second = _one(model, bundle)
@@ -113,7 +130,8 @@ def summarise(reviews: list[Review]) -> dict:
         "models_usable": len(ok),
         "findings_total": sum(len(r.findings) for r in ok),
         "per_model": {r.model: {"findings": len(r.findings), "seconds": r.seconds,
-                                "repaired": r.repaired, "error": r.error} for r in reviews},
+                                "repaired": r.repaired, "error": r.error,
+                                "stood_in_for": r.stood_in_for} for r in reviews},
     }
 
 
