@@ -129,7 +129,22 @@ function renderVerdict(index, claim) {
       <p class="why">${safe(claim.what_it_proves)}</p>
       <pre>${safe(claim.evidence) || "no output"}</pre>
     </details>
-    ${claim.script ? `<details><summary>The proof Nemotron wrote</summary><pre>${safe(claim.script)}</pre></details>` : ""}`;
+    ${claim.script ? `<details><summary>The proof Nemotron wrote</summary><pre>${safe(claim.script)}</pre></details>` : ""}
+    ${attemptsBlock(claim.attempts)}`;
+}
+
+// Each claim is proved by independently written scripts; show every one, not just the lead.
+function attemptsBlock(attempts) {
+  if (!attempts || attempts.length < 2) return "";
+  const word = { REPRODUCED: "reproduced", NOT_REPRODUCED: "not reproduced", UNVERIFIED: "inconclusive" };
+  const rows = attempts.map((a, i) => `
+      <details class="attempt">
+        <summary>Proof ${i + 1}: ${word[a.verdict] || safe(a.verdict)}</summary>
+        <p class="why">${safe(a.what_it_proves)}</p>
+        <pre>${safe(a.evidence) || "no output"}</pre>
+        ${a.script ? `<pre>${safe(a.script)}</pre>` : ""}
+      </details>`).join("");
+  return `<details><summary>${attempts.length} independent proofs — the verdict needs them to agree</summary>${rows}</details>`;
 }
 
 function summary(into, claims, findingsTotal) {
@@ -259,6 +274,43 @@ async function runRepo(target) {
   const { prompt } = await api("/api/fix-prompt", { findings: proved });
   fixPromptBlock(s5.body, prompt);
   s5.done();
+  await fixStep(target, proved);
+}
+
+// Step 6: for every defect that was reproduced by running it, write a patch and run the same
+// proof on the patched copy. Only a patch the proof can no longer break is offered.
+async function fixStep(target, proved) {
+  const fixable = proved.filter((c) => c.verdict === "REPRODUCED" && c.seal &&
+    (c.proof_kind === "dynamic" || (c.models || []).includes("polyjury-simulator")));
+  if (!fixable.length) return;
+  const s6 = step("6", "Fix it, then prove the fix",
+                  "the same proof is run on the untouched code, then on the patched copy");
+  const results = await Promise.all(fixable.map((claim) =>
+    api("/api/fix", { target, bundle: state.bundle, claim })
+      .then((r) => ({ claim, r }))
+      .catch((err) => ({ claim, r: { fixed: false, why: err.message, rounds: [] } }))));
+  results.forEach(({ claim, r }) => s6.body.appendChild(fixCard(claim, r)));
+  const fixed = results.filter(({ r }) => r.fixed).length;
+  s6.say(`${fixed} of ${results.length} reproduced defects now have a patch the proof can no longer break.`);
+  s6.done();
+}
+
+function fixCard(claim, r) {
+  const el = document.createElement("div");
+  el.className = `claim fix ${r.fixed ? "reproduced" : ""}`;
+  const lost = r.travel_lost_deg ? Object.entries(r.travel_lost_deg)
+    .map(([j, d]) => `${safe(j)} loses ${d}° of travel`).join(", ") : "";
+  const rounds = (r.rounds || []).map((x) => `round ${x.round}: ` +
+    (x.verdicts ? x.verdicts.join(", ") : x.verdict)).join(" · ");
+  el.innerHTML = `
+    <div class="claim-head"><span class="chip ${r.fixed ? "reproduced" : "unverified"}">${r.fixed ? "FIXED · PROVED" : "NOT FIXED"}</span>
+      <b>${safe(claim.title)}</b></div>
+    <p class="votes">${safe(r.file || claim.file)}${rounds ? " — " + safe(rounds) : ""}${lost ? " — " + lost : ""}</p>
+    ${r.why ? `<p class="why">${safe(r.why)}</p>` : ""}
+    ${r.diff ? `<details${r.fixed ? " open" : ""}><summary>The patch</summary><pre>${safe(r.diff)}</pre></details>` : ""}
+    ${(r.rounds || []).length ? `<details><summary>What the proof printed on the patched copy</summary><pre>${safe(
+      (r.rounds[r.rounds.length - 1].evidence || []).toString())}</pre></details>` : ""}`;
+  return el;
 }
 
 async function replay(path) {

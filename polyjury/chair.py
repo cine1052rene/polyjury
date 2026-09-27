@@ -90,6 +90,7 @@ class Claim:
     verdict: str = "UNVERIFIED"     # REPRODUCED | NOT_REPRODUCED | UNVERIFIED
     evidence: str = ""
     runner: str = ""
+    attempts: list[dict] = field(default_factory=list)  # the independent proofs behind the verdict
 
     @property
     def agreed(self) -> bool:
@@ -114,12 +115,12 @@ def merge(findings: list[dict]) -> tuple[list[Claim], list[str]]:
     return sim + claims[:8], list(data.get("dropped", []))
 
 
-def _write_proof(claim: Claim, context: str) -> Claim:
+def _write_proof(claim: Claim, context: str, temperature: float = 0.1) -> Claim:
     task = (f"CLAIM: {claim.title}\nFILE: {claim.file}\nWHERE: {claim.where}\n"
             f"WHAT BREAKS: {claim.what_breaks}\n\nREPOSITORY CODE:\n{context}")
     try:
         raw, _ = chat(PROOF_PROMPT, task[:90000], think=True, max_tokens=9000,
-                      temperature=0.1, timeout=CHAIR_TIMEOUT)
+                      temperature=temperature, timeout=CHAIR_TIMEOUT)
         block = SCRIPT_RE.search(raw)
         if not block:
             # Thinking mode sometimes spends the whole budget before the code fence.

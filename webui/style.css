@@ -178,3 +178,4 @@ pre {
   .mode { width: auto; }
   .drawer { position: static; height: auto; border-left: 0; border-top: 1px solid var(--line); }
 }
+.claim details.attempt { margin-left: 14px; }

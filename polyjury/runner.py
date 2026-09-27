@@ -136,7 +136,8 @@ class LocalRunner:
     def __init__(self, repo_root: Path):
         self.root = Path(repo_root)
 
-    def run(self, script: str) -> RunResult:
+    def run(self, script: str, overrides: dict[str, bytes] | None = None) -> RunResult:
+        """overrides: {repo-relative path: new content}, for re-running a proof on a patch."""
         if not script.strip():
             return RunResult("UNVERIFIED", "no proof script was written", self.name)
         # Proof scripts write files and plant modules, so each one gets a throwaway copy of
@@ -147,6 +148,9 @@ class LocalRunner:
             work = tmp / "repo"
             shutil.copytree(self.root, work, ignore=shutil.ignore_patterns(".git", "__pycache__"),
                             dirs_exist_ok=True)
+            for rel, data in (overrides or {}).items():
+                (work / rel).parent.mkdir(parents=True, exist_ok=True)
+                (work / rel).write_bytes(data)
             path = tmp / "proof.py"
             path.write_text(script, encoding="utf-8")
             env = {k: v for k, v in os.environ.items()
@@ -216,23 +220,25 @@ class SandboxRunner:
         parts = ["/work"] + [f"/work/{d}" for d in ("src", "app", "lib") if (self.root / d).is_dir()]
         return ":".join(parts)
 
-    def _payload(self, script: str) -> dict[str, Path | bytes]:
+    def _payload(self, script: str, overrides: dict[str, bytes] | None = None) -> dict[str, Path | bytes]:
         payload: dict[str, Path | bytes] = {"/work/proof.py": script.encode("utf-8")}
         for rel in self.files:
             payload[f"/work/{rel.as_posix()}"] = self.root / rel
+        for rel, data in (overrides or {}).items():
+            payload[f"/work/{Path(rel).as_posix()}"] = data
         if self.robot:
             from polyjury import robot
             payload[robot.REMOTE_HELPER] = robot.helper_source()
         return payload
 
-    def run(self, script: str) -> RunResult:
+    def run(self, script: str, overrides: dict[str, bytes] | None = None) -> RunResult:
         if not script.strip():
             return RunResult("UNVERIFIED", "no proof script was written", self.name)
         try:
             result = self.image.run("sh", args=["-c", self._command()], cwd="/work",
                                     env={"PYTHONPATH": self._remote_path(),
                                          "PYTHONIOENCODING": "utf-8"},
-                                    files=self._payload(script), timeout=RUN_TIMEOUT + self._install_timeout() + 90,
+                                    files=self._payload(script, overrides), timeout=RUN_TIMEOUT + self._install_timeout() + 90,
                                     disposable=True).wait()
         except Exception as exc:  # noqa: BLE001
             return RunResult("UNVERIFIED", f"sandbox error: {type(exc).__name__}: {exc}"[:500], self.name)

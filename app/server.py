@@ -2,6 +2,9 @@
 browser can show progress and nothing has to survive between serverless calls."""
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import os
 import sys
 import time
@@ -14,7 +17,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from polyjury import chair, collect, panel, pipeline, report, sources  # noqa: E402
+from polyjury import chair, collect, fix_code, fix_robot, panel, pipeline, report, robot, runner, sources  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 UI = ROOT / "webui"
@@ -80,6 +83,15 @@ class ClaimIn(BaseModel):
     claim: dict
 
 
+def _seal(target: str, claim: dict) -> str:
+    """The server's signature on a proof it wrote and ran. /api/fix only re-runs scripts that
+    carry it, so the browser cannot hand the sandbox code of its own."""
+    key = (os.environ.get("POLYJURY_SECRET") or os.environ.get("NEBIUS_API_KEY", "dev")).encode()
+    scripts = [claim.get("script", "")] + [a.get("script", "") for a in claim.get("attempts") or []]
+    body = json.dumps([target.strip(), claim.get("file", ""), claim.get("verdict", ""), scripts])
+    return hmac.new(key, body.encode(), hashlib.sha256).hexdigest()
+
+
 class ProveIn(BaseModel):
     target: str
     bundle: str
@@ -137,7 +149,32 @@ def prove(body: ProveIn, request: Request) -> dict:
         raise HTTPException(400, f"Could not read that repository: {exc}") from exc
     claim = chair.Claim(**{k: v for k, v in body.claim.items() if k in chair.Claim.__annotations__})
     claim = pipeline.prove(claim, body.bundle, repo)
-    return claim.__dict__
+    out = claim.__dict__
+    out["seal"] = _seal(body.target, out)
+    return out
+
+
+@app.post("/api/fix")
+def fix(body: ProveIn, request: Request) -> dict:
+    """Patch a reproduced defect and run the proof again on the patched copy."""
+    _guard(request, "fix")
+    _github_only(body.target)
+    c = body.claim
+    if c.get("verdict") != "REPRODUCED":
+        raise HTTPException(400, "Only a reproduced defect can be fixed.")
+    if not hmac.compare_digest(str(c.get("seal", "")), _seal(body.target, c)):
+        raise HTTPException(400, "That proof was not written and run by this server.")
+    try:
+        repo = pipeline.get_repo(body.target)
+        backend = runner.pick(repo.root, repo.files + repo.data, top=repo.top)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, f"Could not set up the run: {exc}") from exc
+    claim = chair.Claim(**{k: v for k, v in c.items() if k in chair.Claim.__annotations__})
+    if robot.SIM_MODEL in claim.models:
+        return fix_robot.run(claim, repo, backend)
+    if claim.proof_kind != "dynamic":
+        raise HTTPException(400, "Only a defect reproduced by running the code can be fixed and re-proved.")
+    return fix_code.run(claim, repo, backend)
 
 
 @app.post("/api/sources")
