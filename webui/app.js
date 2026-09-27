@@ -1,7 +1,12 @@
 /* The browser runs the court: one short request per step, so the work is visible
    and nothing has to be remembered on the server between serverless calls. */
 const $ = (id) => document.getElementById(id);
-const safe = (t) => (t || "").replace(/[<>]/g, "");
+// Everything shown here comes from models or the web, so it is escaped as text, never
+// stripped (stripping < turned "a < b" in a proof script into "a  b").
+const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+const safe = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ESC[c]);
+// Links from search results: only http(s), so a "javascript:" source cannot run.
+const safeUrl = (u) => (/^https?:\/\//i.test(String(u || "").trim()) ? safe(String(u).trim()) : "#");
 
 let REVIEWERS = [];
 let MODE = "repo";
@@ -177,7 +182,7 @@ function renderCitation(el, data) {
     <p class="q">searched: ${safe(data.query)}</p>
     ${data.why_it_matters ? `<p class="why">${safe(data.why_it_matters)}</p>` : ""}
     <ol>${data.sources.map((s) => `
-      <li><a href="${safe(s.url)}" target="_blank" rel="noreferrer noopener">${safe(s.title) || s.url}</a>
+      <li><a href="${safeUrl(s.url)}" target="_blank" rel="noreferrer noopener">${safe(s.title) || safe(s.url)}</a>
       <p>${safe(s.snippet)}</p></li>`).join("")}</ol>`;
 }
 

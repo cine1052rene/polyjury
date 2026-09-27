@@ -235,6 +235,9 @@ def pick(repo_root: Path, files: list[Path], allow_local: bool = False, top: Pat
     try:
         return SandboxRunner(repo_root, files, top=top)
     except Exception as exc:  # noqa: BLE001
+        # never on the public server, whatever the flag says: there, the host is ours
+        if os.environ.get("VERCEL"):
+            allow_local = False
         if not allow_local:
             raise RuntimeError(
                 "This claim was not tested. Polyjury only runs proofs inside Nebius Token "
