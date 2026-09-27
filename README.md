@@ -133,10 +133,23 @@ picked from the combined pool.
 
 ## Models
 
-Jurors: `deepseek-ai/DeepSeek-V4-Pro`, `Qwen/Qwen3-235B-A22B-Instruct-2507`, `openai/gpt-oss-120b`
-(Qwen3.5-397B until Nebius retired it on 2026-09-27; the recorded verdict and the demo video used it).
+Jurors: `deepseek-ai/DeepSeek-V4-Pro`, `Qwen/Qwen3-235B-A22B-Instruct-2507`, `openai/gpt-oss-120b`.
+Nebius can retire a model without notice (Qwen3.5-397B vanished for an afternoon on 2026-09-27
+and the site ran on two jurors until someone noticed), so when a juror answers 404 a stand-in
+from `panel.BACKUP` takes its seat — called with thinking off, because with it on those models
+spend the whole answer budget thinking — and the verdict says who stood in for whom.
 Presiding: `nvidia/nemotron-3-super-120b-a12b` with thinking enabled — merging contradictory
 reviews and writing a falsifiable test is judgement, not retrieval.
+
+## What's next
+
+A robot description is the first kind of hardware Polyjury can prove things about. The next
+question is whether the same loop works one step earlier: an AI writes the CAD (CadQuery) and
+the URDF for a wearable from a brief, and Polyjury checks the geometry against the brief. A
+first experiment on AR-glasses frames showed that the build-and-load loop works and that
+collision checks alone are not enough — a frame with no lens openings passes them — so the
+next step is brief-derived geometric assertions plus a vision model comparing renders to the
+brief.
 
 ## Licence
 

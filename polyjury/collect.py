@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import io
+import os
 import re
+import shutil
+import threading
 import urllib.request
+import uuid
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -182,28 +186,56 @@ def locate(src: Path, url: str) -> Repo:
     return repo
 
 
+_UNPACK_GUARD = threading.Lock()
+_UNPACKING: dict[str, threading.Lock] = {}
+
+
+def _unpack_lock(dest: Path) -> threading.Lock:
+    with _UNPACK_GUARD:
+        return _UNPACKING.setdefault(str(dest), threading.Lock())
+
+
 def from_github(url: str, dest: Path) -> Repo:
-    """Download a public repo zipball (no token, no git needed)."""
+    """Download a public repo zipball (no token, no git needed).
+
+    Proofs start in parallel, and on 2026-09-27 two of them unpacked the same zipball into the
+    same cache folder at once: one died with "[Errno 17] File exists". So the unpacking is done
+    once per folder (a lock inside this process, a temporary folder renamed into place across
+    processes), and a request that arrives while another is unpacking reuses the result."""
     owner, name, branch, sub = parse_github(url)
-    dest.mkdir(parents=True, exist_ok=True)
-    if sub:  # one folder: fetch its code, not the whole repository
-        from polyjury import github_folder
-        github_folder.fetch(owner, name, branch, sub, dest)
-        return locate(dest, url)
-    last = None
-    for ref in ((branch,) if branch else ("main", "master")):
-        api = f"https://codeload.github.com/{owner}/{name}/zip/refs/heads/{ref}"
+    with _unpack_lock(dest):
         try:
-            req = urllib.request.Request(api, headers={"User-Agent": "polyjury"})
-            blob = urllib.request.urlopen(req, timeout=60).read()
-            break
-        except Exception as exc:  # noqa: BLE001
-            last = exc
-    else:
-        raise ValueError(f"could not download {owner}/{name}: {last!r}")
-    with zipfile.ZipFile(io.BytesIO(blob)) as zf:
-        zf.extractall(dest)
-    return locate(dest, url)
+            return locate(dest, url)  # another request has just finished the job
+        except (StopIteration, OSError):
+            pass
+        part = dest.with_name(f"{dest.name}.part-{uuid.uuid4().hex[:8]}")
+        part.mkdir(parents=True, exist_ok=True)
+        if sub:  # one folder: fetch its code, not the whole repository
+            from polyjury import github_folder
+            github_folder.fetch(owner, name, branch, sub, part)
+        else:
+            last = None
+            for ref in ((branch,) if branch else ("main", "master")):
+                api = f"https://codeload.github.com/{owner}/{name}/zip/refs/heads/{ref}"
+                try:
+                    req = urllib.request.Request(api, headers={"User-Agent": "polyjury"})
+                    blob = urllib.request.urlopen(req, timeout=60).read()
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    last = exc
+            else:
+                shutil.rmtree(part, ignore_errors=True)
+                raise ValueError(f"could not download {owner}/{name}: {last!r}")
+            with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+                zf.extractall(part)
+        if dest.exists():  # somebody else won the race while we were downloading
+            shutil.rmtree(part, ignore_errors=True)
+        else:
+            try:
+                os.replace(part, dest)
+            except OSError:
+                shutil.rmtree(part, ignore_errors=True)
+        return locate(dest, url)
 
 
 def load(target: str, workdir: Path) -> Repo:
