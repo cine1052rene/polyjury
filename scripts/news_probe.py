@@ -9,6 +9,7 @@ and computes the number, run in a Nebius Sandbox. Only computed evidence counts.
 from __future__ import annotations
 
 import argparse
+from urllib.parse import urlparse
 import json
 import re
 import sys
@@ -50,8 +51,13 @@ fact-checker's conclusion; only numbers count. JSON only:
 PROOF_PROMPT = """Write one Python 3 script that settles a sub-claim of a news claim by
 COMPUTING it from numbers, never by quoting someone's conclusion. Guessing is not allowed.
 Rules:
-- The full text of the documents found for this claim is in /work/sources/*.txt (first line
-  is the URL). Read them from disk. Every number you use from them must be located by
+- The full text of the documents found for this claim is ALREADY in /work/sources/*.txt:
+  line 1 is where it came from, the rest is the extracted text (tables included). Read the
+  text from disk; never download these URLs again (the sites block scripts). Tables from PDFs
+  are often flattened so several rows share one line, and numbers carry thousands separators
+  ("1,048%"): match the row label, then parse the numbers that follow it, and print each parsed
+  value next to the text it came from so a wrong parse is visible. Take the numbers from the
+  exact row the passage names, and keep their sign: "5.7% decrease" is -5.7%. Every number you use from them must be located by
   searching the file text in the script, and you must print the exact line you found it in
   and the file's URL. A number you cannot find in a file must not be used.
 - A fact-checker saying "false" is not evidence. Their quoted counts, baselines and
@@ -106,7 +112,8 @@ def juror(model: str, claim: str, context: str) -> dict:
 
 def write_proof(sub: dict, claim: str, sources: str) -> tuple[str, str]:
     task = (f"FULL CLAIM: {claim}\nSUB-CLAIM: {sub['assertion']}\nDATASET: {sub.get('dataset','')}\n"
-            f"COMPUTE: {sub.get('compute','')}")
+            f"COMPUTE: {sub.get('compute','')}\nNUMBERS ARE IN THESE PASSAGES (verbatim):\n" +
+            "\n".join(f"- {q['file']}: {q['text']}" for q in sub.get("quotes") or []))
     raw, _ = chat(PROOF_PROMPT.replace("{sources}", sources), task, think=True,
                   max_tokens=9000, temperature=0.1, timeout=200)
     block = re.search(r"```(?:python)?\s*(.*?)```", raw, re.S)
@@ -127,6 +134,52 @@ def run_in_sandbox(script: str, docs: dict[str, bytes] | None = None) -> tuple[s
         return "INCONCLUSIVE", f"sandbox error: {exc}"
     m = re.findall(r"VERDICT:\s*(SUPPORTED|REFUTED|INCONCLUSIVE)", r.stdout or "")
     return (m[-1] if m else "INCONCLUSIVE"), out
+
+
+REPAIR_PROMPT = """A proof script ended INCONCLUSIVE. Decide why from its own output.
+If the data simply is not there, answer exactly: NO_FIX
+If the script itself is at fault (a number parsed wrong - e.g. "1,048" read as 48 -, a regex that
+missed text it printed, an exception in its own code), return the whole corrected script in one
+```python block. Same rules: read /work/sources/*.txt, never re-download them, print the exact
+line each number came from, and end with VERDICT: SUPPORTED | REFUTED | INCONCLUSIVE."""
+
+
+def repair(script: str, output: str) -> str:
+    raw, _ = chat(REPAIR_PROMPT, f"SCRIPT:\n```python\n{script}\n```\n\nOUTPUT:\n{output[-4000:]}",
+                  think=True, max_tokens=9000, temperature=0, timeout=200)
+    if "NO_FIX" in (raw or "")[:200]:
+        return ""
+    block = re.search(r"```(?:python)?\s*(.*?)```", raw or "", re.S)
+    return block.group(1).strip() if block else ""
+
+
+NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def _numbers(text: str) -> list[float]:
+    out = []
+    for n in NUMBER.findall(text):
+        try:
+            out.append(float(n.replace(",", "")))
+        except ValueError:
+            pass
+    return out
+
+
+def unused_numbers(quotes: list[dict], output: str) -> list[str]:
+    """A verdict must be computed from the passages the chair quoted. A model reading a flattened
+    table easily grabs the next row; checking the model's reasoning cannot catch that, checking
+    the numbers can."""
+    # lines that merely echo the source passage prove nothing about what was computed
+    echoes = [_flat(q.get("text", "")) for q in quotes if q.get("text")]
+    own = [ln for ln in output.splitlines() if not any(e and e in _flat(ln) for e in echoes)]
+    seen = _numbers("\n".join(own))
+    missing = []
+    for q in quotes:
+        for n in _numbers(q.get("text", "")):
+            if not any(abs(n - s) <= 1e-6 + 0.001 * abs(n) for s in seen):
+                missing.append(f"{n:g}")
+    return missing
 
 
 def audit(assertion: str, verdict: str, output: str) -> str:
@@ -155,18 +208,129 @@ def gather(queries: list[str], limit: int = 8) -> dict[str, bytes]:
     return docs
 
 
+PRIMARY_PROMPT = """Articles about a news claim link to other pages. Pick the links most likely to
+be the ORIGINAL source of the claim's figures: the report, dataset, memo or official document
+the numbers were computed from (not other news stories, not social media, not fact-check home
+pages). JSON only: {"primary":[str]} with at most 5 URLs copied exactly from the list, best first."""
+
+RESCOPE_PROMPT = """You chair a fact-checking panel. Below are the sub-claims your panel wrote before
+reading the sources, and the source documents now on disk, including the ORIGINAL document
+behind the figures when one was found. Rewrite the sub-claims (at most 5) so each one can be
+settled by recomputing numbers these documents actually contain: the claimed figure computed
+from the original data the way the claim did, the same figure from corrected or complete data,
+and how far off the baseline was. Keep the claim's own wording of what is asserted.
+For every sub-claim copy, character for character, the short passages (under 300 characters
+each) that hold the numbers it needs, with the FILE they are in. If the documents hold nothing
+for a part of the claim, keep that part as its own sub-claim with no quotes, so it is reported
+as unsettled instead of silently disappearing. JSON only:
+{"subclaims":[{"assertion":str,"compute":str,"checkers":[str],"quotes":[{"file":str,"text":str}]}]}"""
+
+LINK = re.compile(r"https?://[^\s)\]\"'<>]+")
+
+
+def follow_primary(claim: str, docs: dict[str, bytes], limit: int = 3) -> dict[str, bytes]:
+    """Fact-checks link to the document the figures came from; fetch that document itself."""
+    have = {v.split(b"\n", 1)[0].decode() for v in docs.values()}
+    links = []
+    for v in docs.values():
+        home = urlparse(v.split(b"\n", 1)[0].decode()).netloc.removeprefix("www.")
+        mine = 0
+        for u in LINK.findall(v.decode("utf-8", "replace")):
+            u = u.rstrip(".,;")
+            host = urlparse(u).netloc.removeprefix("www.")
+            # links back into the same site are navigation, not sources
+            if host == home or u in have or u in links or re.search(r"\.(png|jpe?g|gif|svg|webp)(\?|$)", u, re.I):
+                continue
+            links.append(u)
+            mine += 1
+            if mine >= 40:
+                break
+    if not links:
+        return {}
+    raw, _ = chat(PRIMARY_PROMPT, f"CLAIM: {claim}\nLINKS:\n" + "\n".join(links[:500]), think=False,
+                  max_tokens=500, temperature=0, timeout=90)
+    picked = [u for u in ((parse_json(raw) or {}).get("primary") or []) if u in links][:5]
+    print("    primary sources picked:", picked)
+    if not picked:
+        return {}
+    try:
+        got = get_search()._client.extract(urls=picked, extract_depth="advanced")
+    except Exception as exc:  # noqa: BLE001
+        print("  extract failed:", exc)
+        return {}
+    print("    could not read:", [f.get("url") for f in got.get("failed_results", [])])
+    out = {}
+    for r in got.get("results", []):
+        text = r.get("raw_content") or ""
+        if len(text) >= 300:
+            if len(out) >= limit:
+                break
+            out[f"/work/sources/p{len(out)}.txt"] = (r["url"] + "\n" + text[:60000]).encode("utf-8")
+    return out
+
+
+def _flat(text: str) -> str:
+    """Compare letters, digits, % and decimal points only: PDFs and models disagree on quotes,
+    dashes, '>' markers and spacing, never on the numbers."""
+    return re.sub(r"[^0-9a-z%.]+", " ", text.lower()).strip()
+
+
+def rescope(subs: list[dict], docs: dict[str, bytes]) -> list[dict]:
+    """Sub-claims written before reading the sources ask for data nobody has on disk. Each new
+    sub-claim must quote the document text holding its numbers; a quote that is not really in
+    that file is thrown away, so nothing gets computed from numbers the chair imagined."""
+    parts = []
+    for name, body in docs.items():
+        size = 12000 if "/p" in name else 2500
+        parts.append(f"=== FILE {name}\n{body.decode('utf-8', 'replace')[:size]}")
+    raw, _ = chat(RESCOPE_PROMPT, f"SUB-CLAIMS:\n{json.dumps(subs, ensure_ascii=False)}\n\nDOCUMENTS:\n" +
+                  "\n\n".join(parts)[:70000], think=True, max_tokens=7000, temperature=0, timeout=200)
+    new = [s for s in (parse_json(raw) or {}).get("subclaims", []) if isinstance(s, dict) and s.get("assertion")][:5]
+    if not new:
+        return [{**s, "quotes": []} for s in subs]
+    text = {k: _flat(v.decode("utf-8", "replace")) for k, v in docs.items()}
+    for s in new:
+        kept, lost = [], []
+        for q in s.get("quotes") or []:
+            if not isinstance(q, dict):
+                continue
+            # the chair joins passages with "..."; every piece must be in the file
+            pieces = [_flat(p) for p in re.split(r"\.\.\.|…", q.get("text", "")) if len(_flat(p)) >= 12]
+            if pieces and all(p in text.get(q.get("file", ""), "") for p in pieces):
+                kept.append(q)
+            else:
+                lost.append(q)
+        s["quotes"], s["rejected_quotes"] = kept, lost
+    return new
+
+
 def doc_index(docs: dict[str, bytes]) -> str:
     return "\n".join(f"{k}: {v.split(b'\n', 1)[0].decode()}" for k, v in docs.items())
 
 
 def prove(sub: dict, claim: str, docs: dict[str, bytes] | None = None) -> dict:
     t = time.time()
+    if docs is not None and not sub.get("quotes"):
+        return {**sub, "verdict": "NO SOURCE DATA", "proves": "", "script": "", "sources": [], "seconds": 0,
+                "output": "None of the documents found contains numbers for this part, so nothing was computed." +
+                          "".join(f"\nquote not found in {q.get('file')}: {q.get('text')}" for q in sub.get("rejected_quotes") or [])}
     found = search(f"{sub.get('dataset','')} {sub['assertion']} official statistics data", 6, official=True)
     sources = fmt(found) or "(search found nothing; use well-known official URLs)"
     if docs:
         sources += "\n\nDOCUMENTS ON DISK:\n" + doc_index(docs)
     script, proves = write_proof(sub, claim, sources)
     verdict, output = run_in_sandbox(script, docs) if script else ("INCONCLUSIVE", "no script written")
+    if script and verdict == "INCONCLUSIVE":
+        fixed = repair(script, output)
+        if fixed:
+            script = fixed
+            verdict, output = run_in_sandbox(script, docs)
+            output = "[probe] second attempt after fixing the script's own bug\n" + output
+    missing = unused_numbers(sub.get("quotes") or [], output) if verdict != "INCONCLUSIVE" else []
+    if missing:
+        verdict = "INCONCLUSIVE"
+        output += (f"\n[probe] marked inconclusive: the quoted source numbers {missing} never appear in the run,"
+                   " so it computed from something else (often the wrong table row).")
     why = audit(sub["assertion"], verdict, output) if verdict != "INCONCLUSIVE" else ""
     if why:
         verdict = "INCONCLUSIVE"
@@ -203,9 +367,15 @@ def main() -> None:
     queries = [args.claim, f"fact check {args.claim}"] + [q for q in merged.get("origin_queries", []) if isinstance(q, str)][:3]
     print("[4] gathering the documents behind the numbers:", queries[2:])
     docs = gather(queries)
+    print("    following links to the original document")
+    docs.update(follow_primary(args.claim, docs))
     print(doc_index(docs))
+    subs = rescope(subs, docs)
+    print("    sub-claims after reading the sources:")
+    for s in subs:
+        print("    -", s["assertion"][:110])
     print(f"[5] proving {len(subs)} sub-claims by computation in Nebius Sandboxes")
-    with ThreadPoolExecutor(4) as pool:
+    with ThreadPoolExecutor(5) as pool:
         proved = list(pool.map(lambda s: prove(s, args.claim, docs), subs))
     for p in proved:
         print(f"    {p['verdict']:13s} {p['assertion'][:90]} ({p['seconds']}s)")
@@ -222,7 +392,8 @@ def main() -> None:
         lines += ["", "## What the claim leaves undefined"] + [f"- {u}" for u in merged["undefined"]]
     for p in proved:
         lines += ["", f"## [{p['verdict']}] {p['assertion']}", f"- dataset: {p.get('dataset','')}",
-                  f"- raised by: {', '.join(p.get('checkers') or [])}", f"- the run shows: {p['proves']}",
+                  f"- raised by: {', '.join(p.get('checkers') or [])}", f"- planned test (written before the run): {p['proves']}",
+                  *[f"- source passage: {q['file']}: {q['text']}" for q in p.get("quotes") or []],
                   "```", p["output"][-2500:], "```"]
     out.write_text("\n".join(lines), encoding="utf-8")
     print("report:", out)
