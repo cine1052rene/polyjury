@@ -23,6 +23,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 from core.tavily_client import get_search  # noqa: E402
 from polyjury.llm import chat, parse_json  # noqa: E402
 from polyjury.panel import REVIEWERS  # noqa: E402
+import news_data  # noqa: E402
 
 OFFICIAL = ["ourworldindata.org", "github.com", "raw.githubusercontent.com", "cdc.gov", "data.cdc.gov",
             "ons.gov.uk", "who.int", "gov.uk", "nhs.uk", "ecdc.europa.eu", "ec.europa.eu", "cancer.gov",
@@ -60,6 +61,10 @@ Rules:
   exact row the passage names, and keep their sign: "5.7% decrease" is -5.7%. Every number you use from them must be located by
   searching the file text in the script, and you must print the exact line you found it in
   and the file's URL. A number you cannot find in a file must not be used.
+- Raw datasets (replication files, spreadsheets) are in /work/data/ when one was found. If the
+  sub-claim names one, compute the figure from its rows with pandas, both the way the claim did
+  and the corrected way; that outranks any figure quoted in an article. Print the row counts and
+  the grouping you used.
 - A fact-checker saying "false" is not evidence. Their quoted counts, baselines and
   corrections are: recompute the claimed percentage from them, both the way the claim did
   and with any corrected figures, and print both results.
@@ -78,9 +83,14 @@ Rules:
     "VERDICT: INCONCLUSIVE"  - the data could not be obtained or cannot decide it
 Reply with PROVES: <one sentence> and one ```python block."""
 
-AUDIT_PROMPT = """A script downloaded data to test part of a news claim. Read what it printed
-and the verdict it gave. Does the printed evidence support that verdict? A verdict with no
-downloaded numbers behind it, or numbers that point the other way, contradicts itself.
+AUDIT_PROMPT = """A script tested part of a news claim. Read the source passages it was given,
+what it printed, and the verdict. Does the printed evidence support that verdict? A verdict
+with no numbers behind it, or numbers that point the other way, contradicts itself. So does a
+script that took a number the passage gives for something else (an older limit, another row,
+another year) instead of the one the passage gives for this quantity.
+Remember what the verdicts mean: REFUTED says the computed numbers disagree with the sub-claim,
+so numbers that disagree with it are CONSISTENT with REFUTED; SUPPORTED needs numbers that agree.
+Judge whether the verdict follows from the printed numbers, not whether the sub-claim is true.
 Answer one line: CONSISTENT, or CONTRADICTS: <why>."""
 
 
@@ -113,10 +123,18 @@ def juror(model: str, claim: str, context: str) -> dict:
 def write_proof(sub: dict, claim: str, sources: str) -> tuple[str, str]:
     task = (f"FULL CLAIM: {claim}\nSUB-CLAIM: {sub['assertion']}\nDATASET: {sub.get('dataset','')}\n"
             f"COMPUTE: {sub.get('compute','')}\nNUMBERS ARE IN THESE PASSAGES (verbatim):\n" +
-            "\n".join(f"- {q['file']}: {q['text']}" for q in sub.get("quotes") or []))
-    raw, _ = chat(PROOF_PROMPT.replace("{sources}", sources), task, think=True,
-                  max_tokens=9000, temperature=0.1, timeout=200)
-    block = re.search(r"```(?:python)?\s*(.*?)```", raw, re.S)
+            "\n".join(f"- {q['file']}: {q['text']}" for q in sub.get("quotes") or []) +
+            "".join(f"\nRAW DATASET TO RECOMPUTE FROM: {d}" for d in sub.get("data") or []))
+    for _ in range(2):  # an empty or code-less answer happens now and then; ask once more
+        try:
+            raw, _ = chat(PROOF_PROMPT.replace("{sources}", sources), task, think=True,
+                          max_tokens=9000, temperature=0.1, timeout=200)
+        except Exception as exc:  # noqa: BLE001
+            print("  proof writing failed:", exc)
+            raw = ""
+        block = re.search(r"```(?:python)?\s*(.*?)```", raw or "", re.S)
+        if block:
+            break
     proves = re.search(r"PROVES:\s*(.+)", raw)
     return (block.group(1).strip() if block else ""), (proves.group(1).strip() if proves else "")
 
@@ -172,8 +190,10 @@ def unused_numbers(quotes: list[dict], output: str) -> list[str]:
     the numbers can."""
     # lines that merely echo the source passage prove nothing about what was computed
     echoes = [_flat(q.get("text", "")) for q in quotes if q.get("text")]
-    own = [ln for ln in output.splitlines() if not any(e and e in _flat(ln) for e in echoes)]
+    own = [LINK.sub(" ", ln) for ln in output.splitlines() if not any(e and e in _flat(ln) for e in echoes)]
     seen = _numbers("\n".join(own))
+    if not [ln for ln in own if NUMBER.search(ln) and not ln.startswith(("VERDICT", "[probe]"))]:
+        return []  # nothing was computed: locating the passage is the whole proof
     missing = []
     for q in quotes:
         # numbers inside links are addresses, not data
@@ -186,8 +206,8 @@ def unused_numbers(quotes: list[dict], output: str) -> list[str]:
     return missing
 
 
-def audit(assertion: str, verdict: str, output: str) -> str:
-    raw, _ = chat(AUDIT_PROMPT, f"SUB-CLAIM: {assertion}\nVERDICT: {verdict}\nPRINTED:\n{output[-3500:]}",
+def audit(assertion: str, verdict: str, output: str, passages: str = "") -> str:
+    raw, _ = chat(AUDIT_PROMPT, f"SUB-CLAIM: {assertion}\nSOURCE PASSAGES:\n{passages}\nVERDICT: {verdict}\nPRINTED:\n{output[-3500:]}",
                   think=False, max_tokens=200, temperature=0, timeout=60)
     line = (raw or "").strip().splitlines()[0] if (raw or "").strip() else ""
     return line.split(":", 1)[1].strip() if line.upper().startswith("CONTRADICTS") else ""
@@ -231,8 +251,13 @@ say so in the assertion ("taking 'sickest' as X, ...") rather than inventing a p
 For every sub-claim copy, character for character, the short passages (under 300 characters
 each) that hold the numbers it needs, with the FILE they are in. If the documents hold nothing
 for a part of the claim, keep that part as its own sub-claim with no quotes, so it is reported
-as unsettled instead of silently disappearing. JSON only:
-{"subclaims":[{"assertion":str,"compute":str,"checkers":[str],"quotes":[{"file":str,"text":str}]}]}"""
+as unsettled instead of silently disappearing.
+When a primary body that measured something (a regulator, a statistics office, the study's own
+authors) states the claimed figure directly, quote that sentence: locating the figure there
+settles it. Split a figure into raw components only when those components are in the files.
+When a DATA FILE holds the rows the figure was computed from, name it in "data": recomputing
+from rows beats any quoted result. JSON only:
+{"subclaims":[{"assertion":str,"compute":str,"checkers":[str],"quotes":[{"file":str,"text":str}],"data":[str]}]}"""
 
 LINK = re.compile(r"https?://[^\s)\]\"'<>]+")
 
@@ -290,6 +315,9 @@ def rescope(claim: str, subs: list[dict], docs: dict[str, bytes]) -> list[dict]:
     that file is thrown away, so nothing gets computed from numbers the chair imagined."""
     parts = []
     for name, body in docs.items():
+        if name.startswith("/work/data/"):
+            parts.insert(0, news_data.preview(name, body))
+            continue
         size = 12000 if "/p" in name else 2500
         parts.append(f"=== FILE {name}\n{body.decode('utf-8', 'replace')[:size]}")
     raw, _ = chat(RESCOPE_PROMPT, f"ORIGINAL CLAIM: {claim}\n\nSUB-CLAIMS:\n{json.dumps(subs, ensure_ascii=False)}\n\nDOCUMENTS:\n" +
@@ -310,16 +338,18 @@ def rescope(claim: str, subs: list[dict], docs: dict[str, bytes]) -> list[dict]:
             else:
                 lost.append(q)
         s["quotes"], s["rejected_quotes"] = kept, lost
+        s["data"] = [d for d in s.get("data") or [] if isinstance(d, str) and d in docs]
     return new
 
 
 def doc_index(docs: dict[str, bytes]) -> str:
-    return "\n".join(f"{k}: {v.split(b'\n', 1)[0].decode()}" for k, v in docs.items())
+    return "\n".join(f"{k}: raw dataset ({len(v):,} bytes)" if k.startswith("/work/data/")
+                     else f"{k}: {v.split(b'\n', 1)[0].decode()}" for k, v in docs.items())
 
 
 def prove(sub: dict, claim: str, docs: dict[str, bytes] | None = None) -> dict:
     t = time.time()
-    if docs is not None and not sub.get("quotes"):
+    if docs is not None and not sub.get("quotes") and not sub.get("data"):
         return {**sub, "verdict": "NO SOURCE DATA", "proves": "", "script": "", "sources": [], "seconds": 0,
                 "output": "None of the documents found contains numbers for this part, so nothing was computed." +
                           "".join(f"\nquote not found in {q.get('file')}: {q.get('text')}" for q in sub.get("rejected_quotes") or [])}
@@ -340,7 +370,9 @@ def prove(sub: dict, claim: str, docs: dict[str, bytes] | None = None) -> dict:
         verdict = "INCONCLUSIVE"
         output += (f"\n[probe] marked inconclusive: the quoted source numbers {missing} never appear in the run,"
                    " so it computed from something else (often the wrong table row).")
-    why = audit(sub["assertion"], verdict, output) if verdict != "INCONCLUSIVE" else ""
+    why = audit(sub["assertion"], verdict, output,
+                "\n".join(f"- {q['file']}: {q['text']}" for q in sub.get("quotes") or []) +
+            "".join(f"\nRAW DATASET TO RECOMPUTE FROM: {d}" for d in sub.get("data") or [])) if verdict != "INCONCLUSIVE" else ""
     if why:
         verdict = "INCONCLUSIVE"
         output += f"\n[probe] marked inconclusive: the run contradicts its own verdict. {why}"
@@ -378,6 +410,9 @@ def main() -> None:
     docs = gather(queries)
     print("    following links to the original document")
     docs.update(follow_primary(args.claim, docs))
+    print("    looking for the raw data behind the figures")
+    urls, topic = news_data.candidates(args.claim, docs)
+    docs.update(news_data.fetch(urls, topic))
     print(doc_index(docs))
     subs = rescope(args.claim, subs, docs)
     print("    sub-claims after reading the sources:")
