@@ -24,6 +24,7 @@ from core.tavily_client import get_search  # noqa: E402
 from polyjury.llm import chat, parse_json  # noqa: E402
 from polyjury.panel import REVIEWERS  # noqa: E402
 import news_data  # noqa: E402
+import news_tiers  # noqa: E402
 
 OFFICIAL = ["ourworldindata.org", "github.com", "raw.githubusercontent.com", "cdc.gov", "data.cdc.gov",
             "ons.gov.uk", "who.int", "gov.uk", "nhs.uk", "ecdc.europa.eu", "ec.europa.eu", "cancer.gov",
@@ -256,7 +257,11 @@ When a primary body that measured something (a regulator, a statistics office, t
 authors) states the claimed figure directly, quote that sentence: locating the figure there
 settles it. Split a figure into raw components only when those components are in the files.
 When a DATA FILE holds the rows the figure was computed from, name it in "data": recomputing
-from rows beats any quoted result. JSON only:
+from rows beats any quoted result.
+Each FILE carries its evidence TIER: 1 = the body that measured or ruled (statistics office,
+regulator, court, systematic review), 2 = peer-reviewed or research source, 3 = other web pages.
+Quote the highest tier that holds the numbers. Tier 3 alone cannot settle anything; use it only
+to trace where a figure came from. JSON only:
 {"subclaims":[{"assertion":str,"compute":str,"checkers":[str],"quotes":[{"file":str,"text":str}],"data":[str]}]}"""
 
 LINK = re.compile(r"https?://[^\s)\]\"'<>]+")
@@ -309,7 +314,7 @@ def _flat(text: str) -> str:
     return re.sub(r"[^0-9a-z%.]+", " ", text.lower()).strip()
 
 
-def rescope(claim: str, subs: list[dict], docs: dict[str, bytes]) -> list[dict]:
+def rescope(claim: str, subs: list[dict], docs: dict[str, bytes], tiers: dict[str, int] | None = None) -> list[dict]:
     """Sub-claims written before reading the sources ask for data nobody has on disk. Each new
     sub-claim must quote the document text holding its numbers; a quote that is not really in
     that file is thrown away, so nothing gets computed from numbers the chair imagined."""
@@ -318,11 +323,23 @@ def rescope(claim: str, subs: list[dict], docs: dict[str, bytes]) -> list[dict]:
         if name.startswith("/work/data/"):
             parts.insert(0, news_data.preview(name, body))
             continue
-        size = 12000 if "/p" in name else 2500
-        parts.append(f"=== FILE {name}\n{body.decode('utf-8', 'replace')[:size]}")
-    raw, _ = chat(RESCOPE_PROMPT, f"ORIGINAL CLAIM: {claim}\n\nSUB-CLAIMS:\n{json.dumps(subs, ensure_ascii=False)}\n\nDOCUMENTS:\n" +
-                  "\n\n".join(parts)[:70000], think=True, max_tokens=7000, temperature=0, timeout=200)
-    new = [s for s in (parse_json(raw) or {}).get("subclaims", []) if isinstance(s, dict) and s.get("assertion")][:5]
+        tier = (tiers or {}).get(name, 3)
+        size = 12000 if "/p" in name or tier == 1 else 4000 if tier == 2 else 2000
+        parts.append(f"=== FILE {name} (TIER {tier})\n{body.decode('utf-8', 'replace')[:size]}")
+    parts.sort(key=lambda t: re.search(r"TIER (\d)", t).group(1) if "TIER" in t else "0")
+    new = []
+    for size in (70000, 45000):  # an empty or broken answer happens; retry once with less text
+        try:
+            raw, _ = chat(RESCOPE_PROMPT, f"ORIGINAL CLAIM: {claim}\n\nSUB-CLAIMS:\n{json.dumps(subs, ensure_ascii=False)}"
+                          "\n\nDOCUMENTS:\n" + "\n\n".join(parts)[:size], think=True, max_tokens=9000,
+                          temperature=0, timeout=200)
+        except Exception as exc:  # noqa: BLE001
+            print("  rescope failed:", exc)
+            raw = ""
+        new = [s for s in (parse_json(raw) or {}).get("subclaims", []) if isinstance(s, dict) and s.get("assertion")][:5]
+        if new:
+            break
+        print("    rescope returned nothing; retrying with less text")
     if not new:
         return [{**s, "quotes": []} for s in subs]
     text = {k: _flat(v.decode("utf-8", "replace")) for k, v in docs.items()}
@@ -390,6 +407,8 @@ def main() -> None:
     print("[1] where the claim comes from")
     context = search(args.claim, 6) + search(f"fact check {args.claim}", 4)
     ctx = fmt(context)
+    profile = news_tiers.classify(args.claim)
+    print(f"    fields: {profile['fields']}  region: {profile['region'] or '-'}  source queries: {profile['queries']}")
 
     print(f"[2] {len(REVIEWERS)} jurors split the claim")
     with ThreadPoolExecutor(len(REVIEWERS)) as pool:
@@ -407,14 +426,22 @@ def main() -> None:
 
     queries = [args.claim, f"fact check {args.claim}"] + [q for q in merged.get("origin_queries", []) if isinstance(q, str)][:3]
     print("[4] gathering the documents behind the numbers:", queries[2:])
-    docs = gather(queries)
+    profile["queries"] = (profile["queries"] + queries[2:])[:5]
+    docs, tier_log = news_tiers.gather_tiered(profile, args.claim)
+    for line in tier_log:
+        print("    " + line)
+    docs.update(news_tiers.pubmed(profile["pubmed"]))
+    # the open web is tier 3: it finds where a claim came from, it does not settle it
+    web = gather(queries, limit=5)
+    docs.update({k.replace("/work/sources/", "/work/sources/T3-"): v for k, v in web.items()})
     print("    following links to the original document")
     docs.update(follow_primary(args.claim, docs))
     print("    looking for the raw data behind the figures")
     urls, topic = news_data.candidates(args.claim, docs)
     docs.update(news_data.fetch(urls, topic))
     print(doc_index(docs))
-    subs = rescope(args.claim, subs, docs)
+    tiers = {k: news_tiers.file_tier(k, docs, profile) for k in docs}
+    subs = rescope(args.claim, subs, docs, tiers)
     print("    sub-claims after reading the sources:")
     for s in subs:
         print("    -", s["assertion"][:110])
@@ -422,20 +449,25 @@ def main() -> None:
     with ThreadPoolExecutor(5) as pool:
         proved = list(pool.map(lambda s: prove(s, args.claim, docs), subs))
     for p in proved:
-        print(f"    {p['verdict']:13s} {p['assertion'][:90]} ({p['seconds']}s)")
+        p["evidence_tier"], p["evidence"] = news_tiers.strength(p, docs, profile)
+        settled = p["verdict"] in ("SUPPORTED", "REFUTED")
+        p["shown"] = f"WEAK {p['verdict']}" if settled and p["evidence_tier"] == 3 else p["verdict"]
+        print(f"    {p['shown']:15s} [{p['evidence']}] {p['assertion'][:80]} ({p['seconds']}s)")
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     (out.with_suffix(".json")).write_text(json.dumps({"claim": args.claim, "context": context, "jurors": jurors,
-                                                      "merged": merged, "proved": proved, "docs": doc_index(docs)}, ensure_ascii=False, indent=1),
+                                                      "merged": merged, "proved": proved, "docs": doc_index(docs),
+                                                      "profile": profile, "tier_log": tier_log, "tiers": tiers}, ensure_ascii=False, indent=1),
                                           encoding="utf-8")
-    lines = [f"# News verdict: {args.claim}", f"{len(subs)} sub-claims, {round(time.time()-t0)}s", "",
+    lines = [f"# News verdict: {args.claim}", f"{len(subs)} sub-claims, {round(time.time()-t0)}s",
+             f"Fields: {', '.join(profile['fields'])} / region: {profile['region'] or '-'} / " + "; ".join(tier_log), "",
              "## Jurors' first impressions"]
     lines += [f"- {j['model']}: {j.get('first_impression')} - {j.get('why','')}" for j in jurors]
     if merged.get("undefined"):
         lines += ["", "## What the claim leaves undefined"] + [f"- {u}" for u in merged["undefined"]]
     for p in proved:
-        lines += ["", f"## [{p['verdict']}] {p['assertion']}", f"- dataset: {p.get('dataset','')}",
+        lines += ["", f"## [{p['shown']}] {p['assertion']}", f"- evidence: {p['evidence']}",
                   f"- raised by: {', '.join(p.get('checkers') or [])}", f"- planned test (written before the run): {p['proves']}",
                   *[f"- source passage: {q['file']}: {q['text']}" for q in p.get("quotes") or []],
                   "```", p["output"][-2500:], "```"]
