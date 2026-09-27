@@ -76,7 +76,7 @@ def code_plan(t: dict[str, float]) -> list[tuple[float, float, float, str, str]]
     ]
     if "open-audit" in t:
         s.append((t["open-audit"], t["final"], 1.0, "And one the audit rejected",
-                  "the script said REPRODUCED; its output showed a precondition, not the defect — unverified"))
+                  "the script printed REPRODUCED and nothing that showed it happen — thrown out, not counted"))
     s.append((t["final"], t["end"], 1.0, "A prompt to paste back to the AI that wrote the code",
               "confirmed defects only"))
     return s
