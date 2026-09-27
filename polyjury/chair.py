@@ -18,12 +18,16 @@ Merge their findings:
 - Findings about different instances of the same weakness (for example several in-memory
   dictionaries that are never evicted, or several endpoints missing the same check) are ONE claim.
 - Drop anything vague, cosmetic, or impossible to check by running code.
+- "A script stops when an input file it needs is missing" (media, fonts, data the repository
+  does not ship) is at most ONE claim for the whole repository, and only if nothing says where
+  those files come from. Prefer defects in what the code does with inputs that are present.
 - Rewrite each claim so a non-developer understands what they would lose.
+- A claim that two or more models raised independently outranks one only a single model saw.
 
 JSON only:
 {"claims":[{"title":str,"file":str,"where":str,"severity":"high"|"med"|"low",
  "what_breaks":str,"models":[str]}],"dropped":[str]}
-At most 8 claims, most serious first."""
+At most 12 claims, most serious first."""
 
 PROOF_PROMPT = """You must PROVE or DISPROVE one claim about a repository by running code. Guessing is not allowed.
 
@@ -37,6 +41,15 @@ Rules:
   yourself; a missing package means INCONCLUSIVE.
 - Standard library plus whatever the repository already imports. No network calls, no writes
   outside the working directory, no sleep longer than 2 seconds.
+- Files listed under ALSO PRESENT exist at those paths, so run the code on its real inputs.
+  Large media (video, audio, images, fonts), API keys and the network are NOT available, and
+  neither are external programs unless SYSTEM TOOLS lists them (ffmpeg can make a 1-second test
+  clip). Build a small stand-in input yourself, or answer INCONCLUSIVE.
+- Many scripts do their work at import time (top-level code reading sys.argv or files). Run
+  those with runpy.run_path(path, run_name="__main__") under a patched sys.argv, or with
+  subprocess and sys.executable, instead of importing them.
+- Your verdict must follow from the evidence you print. If what you printed shows the defect
+  happened, that is REPRODUCED, even if you expected otherwise.
 - Put the whole check inside try/except so it can never die without answering.
 - Do not clean up temporary files or directories. The environment is disposable, and a failed
   cleanup has already wrecked otherwise good proofs.
@@ -87,12 +100,15 @@ def merge(findings: list[dict]) -> tuple[list[Claim], list[str]]:
                   think=True, max_tokens=8000, temperature=0, timeout=CHAIR_TIMEOUT)
     data = parse_json(raw) or {}
     claims = []
-    for c in data.get("claims", [])[:8]:
+    for c in data.get("claims", [])[:12]:
         if isinstance(c, dict) and c.get("title"):
             claims.append(Claim(title=c["title"], file=c.get("file", ""), where=c.get("where", ""),
                                 severity=c.get("severity", "med"), what_breaks=c.get("what_breaks", ""),
                                 models=list(c.get("models", []))))
-    return claims, list(data.get("dropped", []))
+    # stable order: agreement first, then severity, so reruns keep the same claims on top
+    rank = {"high": 0, "med": 1, "low": 2}
+    claims.sort(key=lambda c: (-len(set(c.models)), rank.get(c.severity, 1)))
+    return claims[:8], list(data.get("dropped", []))
 
 
 def _write_proof(claim: Claim, context: str) -> Claim:
@@ -175,3 +191,25 @@ def retry_proof(claim: Claim, context: str) -> Claim:
 def write_proofs(claims: list[Claim], context: str, workers: int = 4) -> list[Claim]:
     with ThreadPoolExecutor(max_workers=workers) as pool:
         return list(pool.map(lambda c: _write_proof(c, context), claims))
+
+
+AUDIT_PROMPT = """A script was run to test a claim about some code. Read what it printed and the
+verdict it gave. Does the printed evidence support that verdict? A script that prints evidence
+of the defect and then says NOT_REPRODUCED, or says REPRODUCED without showing the defect
+happen, contradicts itself. So does a script that crashed for an unrelated reason (a missing
+file, font or program) before it reached the claimed behaviour and then gave any verdict other
+than INCONCLUSIVE. Answer with one line: CONSISTENT, or CONTRADICTS: <why, briefly>."""
+
+
+def audit(claim: Claim) -> str:
+    """'' when the run's own output backs its verdict, else the reason it does not."""
+    if claim.verdict not in ("REPRODUCED", "NOT_REPRODUCED"):
+        return ""
+    task = ("CLAIM: " + claim.title + chr(10) + "WHAT BREAKS: " + claim.what_breaks + chr(10)
+            + "VERDICT: " + claim.verdict + chr(10) + "PRINTED:" + chr(10) + claim.evidence[-3000:])
+    try:
+        raw, _ = chat(AUDIT_PROMPT, task, think=False, max_tokens=200, temperature=0, timeout=60)
+    except Exception:  # noqa: BLE001
+        return ""
+    line = (raw or "").strip().splitlines()[0] if (raw or "").strip() else ""
+    return line.split(":", 1)[1].strip() or "the evidence does not match the verdict" if line.upper().startswith("CONTRADICTS") else ""

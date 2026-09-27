@@ -7,6 +7,7 @@ LocalRunner exists so the pipeline can be developed before beta access is grante
 """
 from __future__ import annotations
 
+import ast
 import os
 import re
 import shlex
@@ -22,7 +23,8 @@ VERDICT_YES = "VERDICT: REPRODUCED"
 VERDICT_NO = "VERDICT: NOT_REPRODUCED"
 VERDICT_UNSURE = "VERDICT: INCONCLUSIVE"
 RUN_TIMEOUT = 90
-INSTALL_TIMEOUT = 120
+BARE = re.compile(r"^(?:[A-Z ]+:\s*)?(NOT_REPRODUCED|REPRODUCED|INCONCLUSIVE)\b")
+INSTALL_TIMEOUT = 60
 MAX_DEPS = 40
 _VER = r"[<>=!~]=?\s*[A-Za-z0-9.*+!_-]+"
 _REQ_OK = re.compile(rf"^[A-Za-z0-9][A-Za-z0-9._-]*\s*(\[[A-Za-z0-9,._\s-]+\])?\s*({_VER}(\s*,\s*{_VER})*)?\s*(;[^@]*)?$")
@@ -62,6 +64,36 @@ def declared_deps(root: Path) -> list[str]:
     return clean[:MAX_DEPS]
 
 
+# Import name -> PyPI package, for folders that declare nothing. A fixed list, so the
+# code under review can never choose what gets installed.
+KNOWN_PACKAGES = {
+    "PIL": "Pillow", "numpy": "numpy", "requests": "requests", "yaml": "PyYAML",
+    "cv2": "opencv-python-headless", "bs4": "beautifulsoup4", "dotenv": "python-dotenv",
+    "pandas": "pandas", "flask": "flask", "fastapi": "fastapi", "pydantic": "pydantic",
+    "httpx": "httpx", "jinja2": "jinja2", "click": "click", "typer": "typer", "rich": "rich",
+    "tqdm": "tqdm", "matplotlib": "matplotlib", "scipy": "scipy", "sklearn": "scikit-learn",
+    "pydub": "pydub", "moviepy": "moviepy", "openai": "openai", "aiohttp": "aiohttp",
+    "starlette": "starlette", "sqlalchemy": "sqlalchemy", "markdown": "markdown",
+    "dateutil": "python-dateutil", "pytz": "pytz", "websockets": "websockets",
+}
+
+
+def inferred_deps(root: Path, files: list[Path]) -> list[str]:
+    """Packages the code imports, limited to KNOWN_PACKAGES."""
+    found: set[str] = set()
+    for rel in files:
+        if Path(rel).suffix != ".py":
+            continue
+        try:
+            tree = ast.parse((root / rel).read_text(encoding="utf-8", errors="replace"))
+        except (SyntaxError, OSError, ValueError):
+            continue
+        for node in ast.walk(tree):
+            names = [a.name for a in node.names] if isinstance(node, ast.Import) else                 [node.module] if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module else []
+            found.update(KNOWN_PACKAGES[n.split(".")[0]] for n in names if n.split(".")[0] in KNOWN_PACKAGES)
+    return sorted(found)
+
+
 def _import_roots(root: Path, sep: str) -> str:
     """Packages often live in src/ or app/, so put those on the path too."""
     parts = [str(root)]
@@ -81,10 +113,17 @@ class RunResult:
 def _read_verdict(stdout: str, stderr: str, runner: str) -> RunResult:
     tail = (stdout or "")[-4000:]
     verdicts = {VERDICT_YES: "REPRODUCED", VERDICT_NO: "NOT_REPRODUCED", VERDICT_UNSURE: "UNVERIFIED"}
-    for line in reversed((stdout or "").splitlines()):
+    lines = [ln.strip() for ln in (stdout or "").splitlines() if ln.strip()]
+    for line in reversed(lines):
         for marker, name in verdicts.items():
             if marker in line:
                 return RunResult(name, tail, runner)
+    # scripts often drop the prefix: accept a bare verdict word on one of the last lines
+    for line in reversed(lines[-3:]):
+        m = BARE.search(line)
+        if m:
+            return RunResult({"NOT_REPRODUCED": "NOT_REPRODUCED", "REPRODUCED": "REPRODUCED"}.get(
+                m.group(1), "UNVERIFIED"), tail, runner)
     err = (stderr or "").strip()[-1200:]
     return RunResult("UNVERIFIED", (tail + "\n" + err).strip() or "no output", runner)
 
@@ -141,7 +180,11 @@ class SandboxRunner:
         self.client = ContreeSync()
         self.image = self.client.images.use(image)
         # a sub-folder usually has no manifest of its own: fall back to the repo's
-        self.deps = declared_deps(self.root) or (declared_deps(Path(top)) if top else [])
+        self.deps = (declared_deps(self.root) or (declared_deps(Path(top)) if top else [])
+                     or inferred_deps(self.root, files))
+        from polyjury import tools
+        self.apt = tools.packages(self.root, files)
+        self.fonts = tools.font_names(self.root, files) if "fonts-nanum" in self.apt else []
         # images.use() makes no API call, so prove access before we promise anything.
         self.image.run("true", timeout=30, disposable=True).wait()
 
@@ -149,12 +192,17 @@ class SandboxRunner:
         """Install what the repository declares, then run the proof. A failed install
         is reported but does not stop the run: the proof may not need that package."""
         run = "exec python proof.py"
+        from polyjury import tools
+        steps = [tools.apt_step(self.apt)] if self.apt else []
+        if self.fonts:
+            steps.append(tools.font_step(self.fonts))
         if not self.deps:
-            return run
+            return "; ".join(steps + [run])
         pip = ("timeout %d pip install -q --disable-pip-version-check --no-input "
                "--root-user-action=ignore %s > /tmp/pip.log 2>&1"
                % (INSTALL_TIMEOUT, " ".join(shlex.quote(d) for d in self.deps)))
-        return f"{pip} || {{ echo '[polyjury] installing the declared dependencies failed:'; tail -n 4 /tmp/pip.log; }}; {run}"
+        pip = f"{pip} || {{ echo '[polyjury] installing the declared dependencies failed:'; tail -n 4 /tmp/pip.log; }}"
+        return "; ".join(steps + [pip, run])
 
     def _remote_path(self) -> str:
         """The VM is Linux whatever the host is: build POSIX paths, but look for
@@ -175,7 +223,7 @@ class SandboxRunner:
             result = self.image.run("sh", args=["-c", self._command()], cwd="/work",
                                     env={"PYTHONPATH": self._remote_path(),
                                          "PYTHONIOENCODING": "utf-8"},
-                                    files=self._payload(script), timeout=RUN_TIMEOUT + INSTALL_TIMEOUT,
+                                    files=self._payload(script), timeout=RUN_TIMEOUT + INSTALL_TIMEOUT + 90,
                                     disposable=True).wait()
         except Exception as exc:  # noqa: BLE001
             return RunResult("UNVERIFIED", f"sandbox error: {type(exc).__name__}: {exc}"[:500], self.name)

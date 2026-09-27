@@ -46,10 +46,20 @@ class Review:
     error: str = ""
 
 
+# Notes about the proof sandbox are for the chair. Jurors who read "the repository does not
+# include the font" spent every finding on it, so they get the code alone.
+SANDBOX_NOTES = ("### SYSTEM TOOLS", "### FONTS", "### ALSO PRESENT")
+
+
+def code_only(bundle: str) -> str:
+    lines = bundle.split("\n")
+    return "\n".join(ln for ln in lines if not ln.startswith(SANDBOX_NOTES)).lstrip()
+
+
 def _one(model: str, bundle: str) -> Review:
     try:
-        raw, sec = chat(REVIEW_PROMPT, bundle, think=None, model=model,
-                        max_tokens=8000, temperature=0.2, timeout=TIMEOUT)
+        raw, sec = chat(REVIEW_PROMPT, code_only(bundle), think=None, model=model,
+                        max_tokens=8000, temperature=0, timeout=TIMEOUT)
     except Exception as exc:  # noqa: BLE001
         return Review(model=model, error=f"{type(exc).__name__}: {exc}"[:200])
 

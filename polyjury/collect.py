@@ -5,7 +5,7 @@ import io
 import re
 import urllib.request
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 CODE_EXT = {".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".rb", ".php", ".java", ".rs"}
@@ -15,6 +15,14 @@ SKIP_DIR = {"node_modules", ".git", "dist", "build", "out", "vendor", "__pycache
 SKIP_NAME = re.compile(r"(\.min\.|lock|\.map$|package-lock|yarn\.lock|poetry\.lock)", re.I)
 # Files most likely to hold the defects that hurt a published app.
 HOT = re.compile(r"(main|app|server|index|api|route|auth|login|admin|payment|upload|db|model|handler|middleware)", re.I)
+
+# Small data files the code reads (scripts, subtitles, configs). They are uploaded to the
+# sandbox so a proof can run the real code on the real inputs; reviewers only see their names.
+DATA_EXT = {".json", ".txt", ".csv", ".tsv", ".yaml", ".yml", ".toml", ".ini", ".srt", ".vtt", ".md", ".xml"}
+SECRET = re.compile(r"(^\.env|secret|token|credential|password|passwd|private|apikey|api_key|\.pem$|\.key$|id_rsa)", re.I)
+MAX_DATA_FILES = 40
+MAX_DATA_BYTES = 32_000
+MAX_DATA_TOTAL = 400_000
 
 MAX_FILES = 24
 MAX_FILE_BYTES = 40_000
@@ -29,10 +37,19 @@ class Repo:
     files: list[Path]          # paths relative to root
     total_bytes: int
     top: Path | None = None    # repository top when root is a sub-folder of it
+    data: list[Path] = field(default_factory=list)  # inputs and unreviewed sources, sandbox only
 
     def bundle(self, budget: int = MAX_TOTAL_BYTES) -> str:
         """One text blob the reviewers read, with clear file markers."""
         out, used = [], 0
+        from polyjury import tools
+        note = tools.bundle_note(self.root, self.files + self.data)
+        note += tools.font_note(tools.font_names(self.root, self.files + self.data))
+        if note:
+            out.append(note)
+        if self.data:
+            names = ", ".join(rel.as_posix() for rel in self.data)
+            out.append(f"### ALSO PRESENT when the proof runs (data files and other source files, not shown here): {names}\n")
         for rel in self.files:
             text = (self.root / rel).read_text(encoding="utf-8", errors="replace")[:MAX_FILE_BYTES]
             block = f"### FILE: {rel.as_posix()}\n{text}\n"
@@ -49,6 +66,47 @@ def _is_code(rel: Path) -> bool:
     if SKIP_NAME.search(rel.name):
         return False
     return rel.suffix.lower() in CODE_EXT or rel.name in {"Dockerfile", "vercel.json"}
+
+
+def is_data(rel: Path, size: int) -> bool:
+    """A small, non-secret input file the code is likely to read."""
+    if any(part in SKIP_DIR or part.startswith(".") for part in rel.parts[:-1]):
+        return False
+    if SKIP_NAME.search(rel.name) or SECRET.search(rel.name) or rel.name == "package-lock.json":
+        return False
+    return rel.suffix.lower() in DATA_EXT and 0 < size <= MAX_DATA_BYTES
+
+
+def _pick_data(root: Path) -> list[Path]:
+    cands = []
+    for p in root.rglob("*"):
+        if p.is_file():
+            rel = p.relative_to(root)
+            size = p.stat().st_size
+            if is_data(rel, size):
+                cands.append((len(rel.parts), size, rel))
+    cands.sort()  # shallow and small first: configs next to the scripts that read them
+    picked, total = [], 0
+    for _, size, rel in cands:
+        if len(picked) >= MAX_DATA_FILES or total + size > MAX_DATA_TOTAL:
+            break
+        picked.append(rel)
+        total += size
+    return picked
+
+
+def _pick_support(root: Path, picked: list[Path]) -> list[Path]:
+    """Source files the reviewers did not get, so a proof can still import or run them."""
+    chosen, out, total = set(picked), [], 0
+    for p in sorted(root.rglob("*")):
+        rel = p.relative_to(root)
+        if not p.is_file() or rel in chosen or not _is_code(rel):
+            continue
+        size = p.stat().st_size
+        if 0 < size <= MAX_FILE_BYTES * 4 and len(out) < 60 and total + size <= 1_000_000:
+            out.append(rel)
+            total += size
+    return out
 
 
 def _pick(root: Path) -> tuple[list[Path], int]:
@@ -80,7 +138,7 @@ def from_path(path: str | Path) -> Repo:
     files, total = _pick(root)
     if not files:
         raise ValueError("no reviewable source files found")
-    return Repo(name=root.name, root=root, files=files, total_bytes=total)
+    return Repo(name=root.name, root=root, files=files, total_bytes=total, data=_pick_data(root) + _pick_support(root, files))
 
 
 GITHUB = re.compile(

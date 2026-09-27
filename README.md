@@ -32,7 +32,13 @@ Model-written code that tries to break things is exactly what you must not run o
 machine — so it runs in **Nebius Token Factory Sandboxes**, one disposable microVM per proof.
 Before each proof the VM installs what the repository declares in `pyproject.toml` (including
 its test dependency group) or `requirements.txt` — plain requirement strings only, so a
-repository cannot point pip at a URL of its own choosing.
+repository cannot point pip at a URL of its own choosing. A folder that declares nothing gets
+the packages its imports name, from a fixed list (`PIL` → Pillow). Code that calls ffmpeg or
+loads fonts gets ffmpeg and a Korean-capable stand-in font from Debian's own mirror
+(`polyjury/tools.py`), and the repository's small data files and remaining sources are
+uploaded too, so a proof runs the real scripts on their real inputs. After each run Nemotron
+reads the output once more: a script whose printed evidence contradicts its own verdict is
+marked unverified.
 While you wait for Sandboxes beta access, `--allow-local-exec` runs proofs in a subprocess
 instead. Use it only on code you already trust.
 

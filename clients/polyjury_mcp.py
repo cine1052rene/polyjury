@@ -69,7 +69,8 @@ def verify(target: str, progress=lambda step, total, msg: None) -> str:
         return f"No juror returned usable findings for {repo['name']}."
 
     progress(3, 5, f"Nemotron merging {len(findings)} findings")
-    claims = _post("/api/merge", {"findings": findings})["claims"]
+    merged = _post("/api/merge", {"findings": findings})
+    claims, dropped = merged["claims"], merged.get("dropped") or []
 
     progress(4, 5, f"proving {len(claims)} claims in Nebius Sandboxes")
     with ThreadPoolExecutor(max_workers=4) as pool:
@@ -77,7 +78,8 @@ def verify(target: str, progress=lambda step, total, msg: None) -> str:
                                                {**c, "verdict": "UNVERIFIED", "evidence": "the prove call failed"}), claims))
     progress(5, 5, "writing the verdict")
     prompt = _safe(lambda: _post("/api/fix-prompt", {"findings": proved}), {}).get("prompt", "")
-    return _report(repo, len(models), len(findings), proved, prompt)
+    failed = [f"{m}: {r.get('error')}" for m, r in zip(models, reviews) if r.get("error")]
+    return _report(repo, len(models), len(findings), proved, prompt, dropped, failed)
 
 
 def _safe(call, fallback=None):
@@ -87,12 +89,15 @@ def _safe(call, fallback=None):
         return fallback if fallback is not None else {"error": str(exc), "findings": []}
 
 
-def _report(repo: dict, jurors: int, n_findings: int, claims: list[dict], prompt: str) -> str:
+def _report(repo: dict, jurors: int, n_findings: int, claims: list[dict], prompt: str,
+            dropped: list | None = None, failed: list | None = None) -> str:
     ran = [c for c in claims if c.get("verdict") == "REPRODUCED" and c.get("proof_kind") == "dynamic"]
     lines = [f"# Polyjury verdict: {repo['name']}",
              f"{n_findings} findings from {jurors} jurors became {len(claims)} claims; "
              f"{len(ran)} reproduced by actually running the code.",
              "Treat only CONFIRMED claims as real defects. NEEDS A HUMAN means the check itself could not decide.", ""]
+    if failed:
+        lines += [f"Jurors that did not answer this time: {'; '.join(failed)}", ""]
     order = {"REPRODUCED": 0, "UNVERIFIED": 1, "NOT_REPRODUCED": 2}
     for c in sorted(claims, key=lambda c: order.get(c.get("verdict"), 3)):
         label = LABEL.get(c.get("verdict"), c.get("verdict"))
@@ -105,6 +110,8 @@ def _report(repo: dict, jurors: int, n_findings: int, claims: list[dict], prompt
                   f"- ran in: {c.get('runner') or 'not run'}",
                   f"- what the run shows: {c.get('what_it_proves') or ''}",
                   "```", (c.get("evidence") or "no output")[-1500:], "```", ""]
+    if dropped:
+        lines += ["## Set aside by the chair (not tested)"] + [f"- {d}" for d in dropped] + [""]
     if prompt:
         lines += ["## Fix prompt (confirmed defects only)", prompt]
     return "\n".join(lines)

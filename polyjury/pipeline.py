@@ -43,22 +43,31 @@ def merge(findings: list[dict]) -> tuple[list[chair.Claim], list[str]]:
 
 def prove(claim: chair.Claim, bundle: str, repo: collect.Repo) -> chair.Claim:
     """Write the proof, then run it where it is safe to run."""
+    started = time.time()
     claim = chair._write_proof(claim, bundle)
     if not claim.script:
         claim.verdict, claim.runner = "UNVERIFIED", "none"
         return claim
     try:
-        backend = runner.pick(repo.root, repo.files, top=repo.top, allow_local=os.environ.get("POLYJURY_ALLOW_LOCAL_EXEC", "") == "1")
+        backend = runner.pick(repo.root, repo.files + repo.data, top=repo.top, allow_local=os.environ.get("POLYJURY_ALLOW_LOCAL_EXEC", "") == "1")
     except RuntimeError as exc:
         claim.verdict, claim.evidence, claim.runner = "UNVERIFIED", str(exc), "none"
         return claim
     result = backend.run(claim.script)
     claim.verdict, claim.evidence, claim.runner = result.verdict, result.output, result.runner
-    if claim.verdict == "UNVERIFIED":
+    # a second attempt costs another proof and another VM: skip it when the first
+    # already used most of the 300 s a serverless call gets
+    if claim.verdict == "UNVERIFIED" and time.time() - started < 110:
         claim = chair.retry_proof(claim, bundle)
         result = backend.run(claim.script)
         claim.verdict, claim.evidence, claim.runner = result.verdict, result.output, result.runner
+    # a script can print the defect happening and still call it NOT_REPRODUCED
+    why = chair.audit(claim)
+    if why:
+        claim.verdict = "UNVERIFIED"
+        claim.evidence = (claim.evidence.rstrip()
+                          + f"\n[polyjury] marked unverified: the run contradicts its own verdict. {why}")
     # the chair's own KIND label is a claim too: a proof that never ran the repo is a reading
-    if claim.proof_kind == "dynamic" and not proofcheck.runs_repo_code(claim.script, repo.files):
+    if claim.proof_kind == "dynamic" and not proofcheck.runs_repo_code(claim.script, repo.files + repo.data):
         claim.proof_kind = "static"
     return claim

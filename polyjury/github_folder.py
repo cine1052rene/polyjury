@@ -41,7 +41,7 @@ def _tree(owner: str, name: str, refs: tuple[str, ...]) -> tuple[str, list[dict]
 
 def fetch(owner: str, name: str, branch: str | None, sub: str, dest: Path) -> None:
     """Mirror the code under `sub` into dest/<name>-<ref>/, the layout a zipball has."""
-    from polyjury.collect import HOT, MAX_FILE_BYTES, _is_code  # circular at import time
+    from polyjury.collect import HOT, MAX_DATA_FILES, MAX_FILE_BYTES, _is_code, is_data  # circular at import time
 
     ref, tree = _tree(owner, name, (branch,) if branch else ("main", "master"))
     prefix = sub.rstrip("/") + "/"
@@ -59,6 +59,11 @@ def fetch(owner: str, name: str, branch: str | None, sub: str, dest: Path) -> No
             ranked.append((0 if HOT.search(rel.as_posix()) else 1, -size, path))
     ranked.sort()
     wanted = [p for _, _, p in ranked[:MAX_DOWNLOADS]]
+    # small inputs the scripts read; collect.locate() makes the final selection
+    data = sorted((len(PurePosixPath(t["path"]).parts), t.get("size") or 0, t["path"]) for t in blobs
+                  if t["path"].startswith(prefix)
+                  and is_data(Path(t["path"][len(prefix):]), t.get("size") or 0))
+    wanted += [p for _, _, p in data[:MAX_DATA_FILES * 2]]
     # dependency manifests, in the folder and at the top of the repository
     for t in blobs:
         rel_top, rel_sub = t["path"], t["path"][len(prefix):] if t["path"].startswith(prefix) else None
