@@ -76,6 +76,11 @@ def verify(target: str, progress=lambda step, total, msg: None) -> str:
     with ThreadPoolExecutor(max_workers=4) as pool:
         proved = list(pool.map(lambda c: _safe(lambda: _post("/api/prove", {"target": target, "bundle": bundle, "claim": c}),
                                                {**c, "verdict": "UNVERIFIED", "evidence": "the prove call failed"}), claims))
+    reproduced = [c for c in proved if c.get("verdict") == "REPRODUCED"]
+    if reproduced:
+        progress(5, 5, f"checking whether upstream already knows about {len(reproduced)}")
+        for c in reproduced:
+            c["known"] = _safe(lambda: _post("/api/known", {"target": target, "bundle": "", "claim": c}), {})
     progress(5, 5, "writing the verdict")
     prompt = _safe(lambda: _post("/api/fix-prompt", {"findings": proved}), {}).get("prompt", "")
     failed = [f"{m}: {r.get('error')}" for m, r in zip(models, reviews) if r.get("error")]
@@ -108,8 +113,16 @@ def _report(repo: dict, jurors: int, n_findings: int, claims: list[dict], prompt
                   f"- what breaks: {c.get('what_breaks') or ''}",
                   f"- raised by: {', '.join(c.get('models') or []) or 'n/a'}",
                   f"- ran in: {c.get('runner') or 'not run'}",
-                  f"- what the run shows: {c.get('what_it_proves') or ''}",
-                  "```", (c.get("evidence") or "no output")[-1500:], "```", ""]
+                  f"- what the run shows: {c.get('what_it_proves') or ''}"]
+        k = c.get("known") or {}
+        if k.get("status") in ("known", "fixed"):
+            ref = k.get("ref") or {}
+            lines.append(f"- upstream: already {'reported' if k['status'] == 'known' else 'addressed'} — {ref.get('url', '')} ({ref.get('state', '')}). {k.get('why', '')}")
+        elif k.get("status") == "elsewhere":
+            lines.append(f"- upstream: not in this repository's tracker, but described elsewhere — {(k.get('ref') or {}).get('url', '')}")
+        elif k.get("status") == "new":
+            lines.append("- upstream: not found in the repository's issues or pull requests")
+        lines += ["```", (c.get("evidence") or "no output")[-1500:], "```", ""]
     if dropped:
         lines += ["## Set aside by the chair (not tested)"] + [f"- {d}" for d in dropped] + [""]
     if prompt:

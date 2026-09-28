@@ -13,6 +13,24 @@ def label(claim) -> str:
     return "CONFIRMED — ran it" if claim.proof_kind == "dynamic" else "LIKELY — read the code"
 
 
+def upstream_line(claim) -> str:
+    """One line on what the repository's own tracker already says about a reproduced defect."""
+    k = getattr(claim, "known", None) or {}
+    if not k or claim.verdict != "REPRODUCED":
+        return ""
+    ref = k.get("ref") or {}
+    tag = f"{'PR' if ref.get('kind') == 'pull' else 'issue'} #{ref.get('number')} ({ref.get('state')})" if ref.get("number") else ref.get("url", "")
+    if k.get("status") == "known":
+        return f"already reported upstream: {tag} — {k.get('why', '')}".rstrip(" —")
+    if k.get("status") == "fixed":
+        return f"already addressed upstream: {tag} — {k.get('why', '')}".rstrip(" —")
+    if k.get("status") == "elsewhere":
+        return f"not in this repository's tracker, but described elsewhere: {ref.get('url', '')} — {k.get('why', '')}".rstrip(" —")
+    if k.get("status") == "new":
+        return "not found in the repository's issues or pull requests — worth reporting"
+    return f"upstream check did not complete ({k.get('error') or 'search failed'})"
+
+
 def text_report(repo_name: str, claims: list[Claim], panel: dict) -> str:
     confirmed = [c for c in claims if c.verdict == "REPRODUCED"]
     refuted = [c for c in claims if c.verdict == "NOT_REPRODUCED"]
@@ -40,8 +58,10 @@ def text_report(repo_name: str, claims: list[Claim], panel: dict) -> str:
                       f"- What breaks: {c.what_breaks}",
                       f"- Where: `{c.file}` — {c.where}",
                       f"- Raised by: {votes} ({', '.join(sorted(set(c.models))) or 'n/a'})",
-                      f"- Proof ({c.proof_kind or 'n/a'}): {c.what_it_proves or 'n/a'} — ran in {c.runner}",
-                      "```", c.evidence.strip()[:900] or "(no output)", "```", ""]
+                      f"- Proof ({c.proof_kind or 'n/a'}): {c.what_it_proves or 'n/a'} — ran in {c.runner}"]
+            if upstream_line(c):
+                lines.append(f"- Upstream: {upstream_line(c)}")
+            lines += ["```", c.evidence.strip()[:900] or "(no output)", "```", ""]
     return "\n".join(lines)
 
 
@@ -56,6 +76,9 @@ def fix_prompt(claims: list[Claim]) -> str:
         out += [f"{i}. {c.title}",
                 f"   file: {c.file} ({c.where})",
                 f"   impact: {c.what_breaks}",
-                f"   proof: {c.what_it_proves}", ""]
+                f"   proof: {c.what_it_proves}"]
+        if (c.known or {}).get("status") in ("known", "fixed") and (c.known.get("ref") or {}).get("url"):
+            out.append(f"   upstream: {c.known['ref']['url']} already covers this — read it before changing anything")
+        out.append("")
     out.append("After each fix, tell me in one line how I can check it myself.")
     return "\n".join(out)

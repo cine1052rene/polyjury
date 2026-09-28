@@ -110,8 +110,40 @@ function claimCard(claim, index) {
     <p class="votes">${(claim.models || []).includes("polyjury-simulator")
       ? "raised by Polyjury's own simulation check — jurors read text; a collision is geometry"
       : `raised by ${votes} of ${REVIEWERS.length} jurors`}</p>
+    <p class="upstream" id="k-${index}"></p>
     <div id="proof-${index}"></div>`;
   return el;
+}
+
+// Step 4½: a reproduced defect is only worth an issue if nobody has filed one. The
+// repository's own tracker and the wider web (Tavily) are searched, and Nemotron decides
+// whether any hit is the same defect.
+function renderKnown(index, k) {
+  const el = $(`k-${index}`);
+  if (!el || !k) return;
+  const ref = k.ref || {};
+  const tag = ref.number ? `${ref.kind === "pull" ? "PR" : "issue"} #${ref.number}${ref.state ? " · " + safe(ref.state) : ""}` : "";
+  const link = ref.url ? `<a href="${safeUrl(ref.url)}" target="_blank" rel="noreferrer noopener">${tag || safe(ref.title)}</a>` : "";
+  const text = {
+    known: `already reported upstream: ${link}`,
+    fixed: `already addressed upstream: ${link}`,
+    elsewhere: `not in this repository's tracker, but described elsewhere: ${link}`,
+    new: "not found in the repository's issues or pull requests — worth reporting",
+  }[k.status] || `upstream check did not complete${k.error ? " · " + safe(k.error) : ""}`;
+  el.className = `upstream ${safe(k.status || "unknown")}`;
+  el.innerHTML = `${text}${k.why && k.status !== "new" ? ` <span class="why">— ${safe(k.why)}</span>` : ""}`;
+}
+
+async function gatherKnown(target, claims) {
+  await Promise.all(claims.map((c, i) => {
+    if (c.verdict !== "REPRODUCED") return null;
+    if (c.known && c.known.status) { renderKnown(i, c.known); return null; }
+    $(`k-${i}`).className = "upstream pending";
+    $(`k-${i}`).textContent = "checking whether upstream already knows…";
+    return api("/api/known", { target, bundle: "", claim: c })
+      .then((k) => { c.known = k; renderKnown(i, k); })
+      .catch((err) => renderKnown(i, { status: "unknown", error: err.message }));
+  }));
 }
 
 function renderVerdict(index, claim) {
@@ -267,6 +299,7 @@ async function runRepo(target) {
         })
     )
   );
+  const upstream = gatherKnown(target, proved);
   s4.done();
 
   const s5 = step("5", "Verdict", "");
@@ -274,7 +307,7 @@ async function runRepo(target) {
   const { prompt } = await api("/api/fix-prompt", { findings: proved });
   fixPromptBlock(s5.body, prompt);
   s5.done();
-  await fixStep(target, proved);
+  await Promise.all([upstream, fixStep(target, proved)]);
 }
 
 // Step 6: for every defect that was reproduced by running it, write a patch and run the same
@@ -345,6 +378,7 @@ async function replay(path) {
     await new Promise((f) => setTimeout(f, 700));
     renderVerdict(i, data.claims[i]);
   }
+  gatherKnown(`https://github.com/${data.repo.name}`, data.claims);
   s4.done();
 
   const s5 = step("5", "Verdict", "");

@@ -91,6 +91,7 @@ class Claim:
     evidence: str = ""
     runner: str = ""
     attempts: list[dict] = field(default_factory=list)  # the independent proofs behind the verdict
+    known: dict = field(default_factory=dict)  # what upstream already says: status, ref, why (polyjury.known)
 
     @property
     def agreed(self) -> bool:

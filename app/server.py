@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from polyjury import chair, collect, fix_code, fix_robot, panel, pipeline, report, robot, runner, sources  # noqa: E402
+from polyjury import chair, collect, fix_code, fix_robot, known, panel, pipeline, report, robot, runner, sources  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 UI = ROOT / "webui"
@@ -30,7 +30,7 @@ RATE_WINDOW = 600
 # in each serverless instance, so this is a brake, not an exact quota.
 LIMITS = {  # kind: (per visitor, whole site)
     "collect": (6, 40), "review": (18, 120), "merge": (6, 40),
-    "prove": (48, 320), "sources": (24, 120), "fix": (12, 80),
+    "prove": (48, 320), "sources": (24, 120), "fix": (12, 80), "known": (24, 120),
 }
 _rate: dict[str, list[float]] = {}
 
@@ -185,6 +185,15 @@ def cite(body: ClaimIn, request: Request) -> dict:
     return {"claim": citation.claim, "query": citation.query,
             "why_it_matters": citation.why_it_matters, "error": citation.error,
             "sources": [s.__dict__ for s in citation.sources]}
+
+
+@app.post("/api/known")
+def upstream(body: ProveIn, request: Request) -> dict:
+    """Is this reproduced defect already an issue or pull request upstream? GitHub's own
+    tracker plus Tavily for the wider web, judged by Nemotron."""
+    _guard(request, "known")
+    _github_only(body.target)
+    return known.check(body.claim, body.target).__dict__
 
 
 @app.post("/api/fix-prompt")

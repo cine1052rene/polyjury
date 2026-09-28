@@ -182,7 +182,18 @@
    "proof_kind": "dynamic",
    "verdict": "REPRODUCED",
    "evidence": "Created test module at /work/bad_module_for_test.py\nCalling get_import_data with this module...\nCaught ImportError (as expected): No module named 'nonexistent_module_that_does_not_exist_at_all_12345'\nThis ImportError is not caught and converted to FastAPICLIException,\nso the CLI would show a raw traceback.\nVERDICT: REPRODUCED\n",
-   "runner": "nebius-sandbox"
+   "runner": "nebius-sandbox",
+   "known": {
+    "claim": "Uncaught ImportError leads to raw traceback instead of friendly error",
+    "status": "new",
+    "ref": {},
+    "why": "No matching issue/PR found; search results are generic FastAPI error-handling pages unrelated to fastapi-cli discover.py ImportError handling.",
+    "queries": [
+     "ImportError uncaught discover",
+     "get_import_data exception handling"
+    ],
+    "error": ""
+   }
   },
   {
    "title": "Dev server binds to 127.0.0.1 only, blocking external access",
@@ -231,7 +242,18 @@
    "proof_kind": "dynamic",
    "verdict": "REPRODUCED",
    "evidence": "Initial version file content:\n'__version__ = \"0.0.1\"\\n'\nInitial release notes file content:\n'Some random content without proper header\\n'\nPrepare raised an exception: /work/test_prepare_release_inconsistency/RELEASE_NOTES.md must start with '# Release Notes\\n\\n'\n\nFinal version file content:\n'__version__ = \"0.0.2\"'\nFinal release notes file content:\n'Some random content without proper header\\n'\n\nRESULT: Version bumped but release notes not updated -> inconsistency reproduced.\nVERDICT: REPRODUCED\n",
-   "runner": "nebius-sandbox"
+   "runner": "nebius-sandbox",
+   "known": {
+    "claim": "Version bumped before release notes written leaves repo inconsistent on failure",
+    "status": "new",
+    "ref": {},
+    "why": "No matching issue/PR found; results show unrelated dependency bumps, generic docs, or external pages.",
+    "queries": [
+     "prepare_release version file",
+     "release notes update fail"
+    ],
+    "error": ""
+   }
   },
   {
    "title": "User‑controlled FASTAPI_PUBLIC_URL allows ANSI injection in terminal output",
@@ -264,7 +286,18 @@
    "proof_kind": "dynamic",
    "verdict": "REPRODUCED",
    "evidence": "Standard-library json location: /work/json/__init__.py\nInserted path: /work\nLoaded json location: /work/json/__init__.py\nLoaded json has FAKE attribute? True\nLoaded json.FAKE = True\nSUCCESS: The inserted directory shadowed the standard-library json module.\nVERDICT: REPRODUCED\n",
-   "runner": "nebius-sandbox"
+   "runner": "nebius-sandbox",
+   "known": {
+    "claim": "sys.path modification causes import conflicts and unexpected module loading",
+    "status": "new",
+    "ref": {},
+    "why": "No existing issue/PR addresses sys.path insertion causing stdlib shadowing; hits discuss general import precedence or usage.",
+    "queries": [
+     "sys.path modification import conflict",
+     "get_import_data shadow stdlib module"
+    ],
+    "error": ""
+   }
   },
   {
    "title": "Using --reload and --workers together may cause unexpected behavior",
@@ -280,7 +313,18 @@
    "proof_kind": "dynamic",
    "verdict": "REPRODUCED",
    "evidence": "\n ⚡️ Starting FastAPI in development mode\n \n 🐍 Using import string: test_app:app\n \n 🌐 Server started at http://127.0.0.1:8000\n    Documentation at http://127.0.0.1:8000/docs\n \n  Logs:\n \n\nCaptured uvicorn.run kwargs: {'app': 'test_app:app', 'host': '127.0.0.1', 'port': 8000, 'reload': True, 'reload_dirs': None, 'workers': 2, 'root_path': '', 'proxy_headers': False, 'forwarded_allow_ips': None}\nreload = True, workers = 2\nBoth reload and workers were passed to uvicorn.run.\nVERDICT: REPRODUCED\n",
-   "runner": "nebius-sandbox"
+   "runner": "nebius-sandbox",
+   "known": {
+    "claim": "Using --reload and --workers together may cause unexpected behavior",
+    "status": "new",
+    "ref": {},
+    "why": "No existing issue/PR addresses combining --reload and --workers; closest hits are unrelated bumps or docs.",
+    "queries": [
+     "--reload --workers conflict",
+     "uvicorn reload workers incompatible"
+    ],
+    "error": ""
+   }
   },
   {
    "title": "Unhandled exceptions in release preparation script cause tracebacks",

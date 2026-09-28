@@ -144,6 +144,7 @@ deployment.
 | `polyjury/github_folder.py` | fetches one folder of a repository instead of the whole zipball |
 | `clients/polyjury_mcp.py` | MCP server for Claude Code, Codex and other assistants |
 | `polyjury/sources.py` | Tavily finds the standard or documentation that names the defect |
+| `polyjury/known.py` | is the defect already an issue or pull request upstream? GitHub + Tavily, judged by Nemotron |
 | `polyjury/report.py` | the verdicts, plus a prompt you can paste back to the AI that wrote the code |
 | `polyjury/llm.py` | one place that talks to Token Factory |
 | `app/server.py` | one short HTTP call per step, so the browser can show the work |
@@ -160,6 +161,24 @@ Tavily's `include_domains` turned out to be unreliable — the same query return
 PortSwigger and OWASP on one call and a dictionary definition of "rate" on the next —
 so both a filtered and an open search run in parallel and the authoritative hits are
 picked from the combined pool.
+
+## Already known upstream?
+
+A reproduced defect is worth an issue only if nobody has filed one. For every claim that
+reproduced, Nemotron writes the two queries a maintainer would type into that repository's
+tracker — the joint, the function, the option, the error text, not "bug" — and both the
+repository's own issues and pull requests (GitHub search, open and closed, following renames)
+and the wider web (**Tavily**: advisories, changelogs, other trackers) are searched. Nemotron
+then decides whether any hit is the *same* defect, and the claim is marked **known** (an open
+issue or PR), **fixed** (closed or merged), **elsewhere** (described on a web page, not in this
+tracker) or **new**. A page can never make a claim "known": that word is reserved for the
+repository's own tracker.
+
+This stage exists because of a mistake. On 2026-09-28 Polyjury reproduced an actuator range
+in Menagerie's SO-101 that disagreed with its joint; a title-keyword search found nothing, and
+the draft report called the actuator a typo. A pull request opened the day before had already
+found it — and showed the joint range was the side that had drifted. Run today, the check
+returns that pull request for that claim, and issue #325 for the elbow self-collision.
 
 ## Models
 

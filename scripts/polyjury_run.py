@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from polyjury import collect, panel, pipeline, report  # noqa: E402
+from polyjury import collect, known, panel, pipeline, report  # noqa: E402
 
 OUT = Path(__file__).resolve().parents[1] / "scratch" / "polyjury"
 
@@ -54,6 +54,13 @@ def main() -> None:
 
     with ThreadPoolExecutor(max_workers=3) as pool:
         claims = list(pool.map(_prove, claims))
+
+    reproduced = [c for c in claims if c.verdict == "REPRODUCED"]
+    if reproduced and "github.com" in args.target:
+        print(f"[known] is any of the {len(reproduced)} already reported upstream?", flush=True)
+        for c in reproduced:
+            c.known = known.check(c.__dict__, args.target).__dict__
+            print(f"   {c.known['status']:<8} {c.title[:70]}", flush=True)
 
     md = report.text_report(repo.name, claims, stats)
     prompt = report.fix_prompt(claims)
