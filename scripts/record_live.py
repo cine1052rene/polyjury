@@ -25,8 +25,9 @@ ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
 REPO = ARGS[0] if ARGS else "https://github.com/tiangolo/fastapi-cli"
 NAME = sys.argv[sys.argv.index("--name") + 1] if "--name" in sys.argv else "live"  # output file prefix
 WRITE_EXAMPLE = "--no-example" not in sys.argv
+FIX = "--fix" in sys.argv  # also wait for step 6 (fix loop) and the upstream check, and show both
 SIZE = {"width": 1280, "height": 720}
-LIMIT = 420  # seconds; a verdict normally takes two to three minutes
+LIMIT = 600 if "--fix" in sys.argv else 420  # seconds; a verdict normally takes two to three minutes
 
 
 def main() -> None:
@@ -34,7 +35,7 @@ def main() -> None:
     raw = OUT / "raw-live"
     shutil.rmtree(raw, ignore_errors=True)
     events: list[dict] = []
-    calls: dict[str, list] = {"collect": [], "review": [], "merge": [], "prove": [], "fix-prompt": []}
+    calls: dict[str, list] = {"collect": [], "review": [], "merge": [], "prove": [], "fix-prompt": [], "fix": [], "known": []}
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
@@ -62,6 +63,10 @@ def main() -> None:
             extra = {"model": sent.get("model")} if key == "review" else {}
             if key == "prove":
                 extra = {"verdict": body.get("verdict"), "runner": body.get("runner")}
+            if key == "known":
+                extra = {"upstream": body.get("status"), "ref": (body.get("ref") or {}).get("number")}
+            if key == "fix":
+                extra = {"fixed": body.get("fixed")}
             mark(f"api:{key}", status=resp.status, **extra)
 
         page.on("response", on_response)
@@ -70,7 +75,8 @@ def main() -> None:
         mark("loaded")
         page.wait_for_timeout(2500)
 
-        page.click("#sources-toggle")
+        if "--no-sources" not in sys.argv:
+            page.click("#sources-toggle")
         page.wait_for_timeout(1200)
         page.click("#target")
         page.type("#target", REPO, delay=45)
@@ -96,7 +102,38 @@ def main() -> None:
                 mark("verdict")
                 break
 
-        if seen_done:
+        if seen_done and FIX:
+            # the verdict is out; the upstream check and the fix loop are still running
+            while time.time() - t0 < LIMIT:
+                page.wait_for_timeout(500)
+                steps = page.eval_on_selector_all(".step", "els => els.length")
+                if steps != last_steps:
+                    last_steps = steps
+                    mark("step", n=steps)
+                    page.evaluate("""() => { const s = [...document.querySelectorAll('.step')].pop();
+                        window.scrollTo({top: s.getBoundingClientRect().top + scrollY - 90, behavior: 'smooth'}); }""")
+                pending = page.eval_on_selector_all(".upstream.pending", "els => els.length")
+                live = page.eval_on_selector_all(".step.live", "els => els.length")
+                if not pending and not live:
+                    mark("fix-done")
+                    break
+            page.wait_for_timeout(1500)
+            # the upstream line on the first reproduced claim
+            page.evaluate("""() => { const u = document.querySelector('.claim.reproduced .upstream:not(:empty)');
+                if (u) window.scrollTo({top: u.getBoundingClientRect().top + scrollY - 260, behavior: 'smooth'}); }""")
+            mark("open-upstream")
+            page.wait_for_timeout(6000)
+            # the fix card: patch and what the proof printed on the patched copy
+            has_fix = page.evaluate("""() => { const f = document.querySelector('.claim.fix');
+                if (!f) return false; f.querySelectorAll('details').forEach(d => d.open = true);
+                window.scrollTo({top: f.getBoundingClientRect().top + scrollY - 120, behavior: 'smooth'}); return true; }""")
+            if has_fix:
+                mark("open-fix")
+                page.wait_for_timeout(9000)
+            mark("final")
+            page.wait_for_timeout(3000)
+            mark("end")
+        elif seen_done:
             page.wait_for_timeout(1200)
             # the claims, then open the first confirmed one to show the run and the script
             page.evaluate("""() => { const c = document.querySelector('.claims');
