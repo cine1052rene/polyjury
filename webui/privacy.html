@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sign-in and data — Polyjury</title>
+<link rel="stylesheet" href="/style.css" />
+<style>
+  .policy { max-width: 760px; margin: 0 auto; padding: 36px 22px 80px; line-height: 1.6; }
+  .policy h1 { font-size: 26px; margin-bottom: 4px; }
+  .policy h2 { font-size: 17px; margin: 30px 0 8px; }
+  .policy p, .policy li { color: #c9d1e1; font-size: 15px; }
+  .policy .lead { color: var(--muted); }
+  .policy code { font: 13px var(--mono); background: var(--panel); padding: 1px 5px; border-radius: 5px; }
+  .policy table { border-collapse: collapse; width: 100%; font-size: 14px; margin-top: 8px; }
+  .policy th, .policy td { text-align: left; border-bottom: 1px solid var(--line); padding: 7px 8px; vertical-align: top; }
+  .policy th { color: var(--muted); font-weight: 600; }
+  .policy .box { background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 4px 18px; }
+</style>
+</head>
+<body>
+<main class="policy">
+  <p><a href="/">&larr; Back to Polyjury</a></p>
+  <h1>Sign-in and data</h1>
+  <p class="lead">Last updated 14 October 2026.</p>
+
+  <div class="box">
+    <p><b>Short version.</b> Signing in is optional — Polyjury works the same without it.
+    The server has no database and keeps no accounts. Your GitHub token and, if you add one,
+    your Nebius key are encrypted and kept in a cookie in <em>your</em> browser; the server
+    reads them only while handling your request. Polyjury only ever reads public GitHub code.</p>
+  </div>
+
+  <h2 id="github">Sign in with GitHub</h2>
+  <p>Polyjury asks GitHub for <b>no permissions (no scopes)</b>. The token it receives can read
+  only what is already public. It cannot see private repositories, cannot write, comment, open
+  issues or act on your behalf in any way.</p>
+  <p>What signing in gives you:</p>
+  <ul>
+    <li>A rate limit of your own, tied to your GitHub account instead of your network address, and twice as large.</li>
+    <li>Your public repositories as a list to pick from, instead of pasting an address.</li>
+    <li>GitHub calls made for your runs (reading a folder, the "already reported upstream?" check)
+      use your token, so they do not compete with everyone else for the site's shared limit.</li>
+  </ul>
+
+  <h2 id="stored">What is stored, and where</h2>
+  <table>
+    <tr><th>What</th><th>Where</th><th>How long</th></tr>
+    <tr><td>GitHub token, user id, login name, avatar address</td>
+        <td>Encrypted <code>pj_session</code> cookie in your browser (httpOnly: page scripts cannot read it)</td>
+        <td>7 days, or until you sign out</td></tr>
+    <tr><td>Your Nebius key, if you add one</td>
+        <td>Encrypted <code>pj_byok</code> cookie in your browser (httpOnly)</td>
+        <td>7 days, or until you press "Stop using it" or sign out</td></tr>
+    <tr><td>Sign-in check value</td>
+        <td><code>pj_state</code> cookie, protects the sign-in against forged requests</td>
+        <td>10 minutes</td></tr>
+    <tr><td>"Your cases": repository, date, and each claim's title, file and verdict</td>
+        <td>This browser's localStorage only — never sent to the server</td>
+        <td>Last 12 cases, until you press "Clear this list"</td></tr>
+    <tr><td>Anything on the server</td><td>Nothing. There is no database.</td><td>—</td></tr>
+  </table>
+  <p>Each request brings the cookies with it; the server decrypts them in memory for that request
+  and does not write or log them. Polyjury runs on Vercel, which keeps ordinary request logs
+  (address, time, path) for every visitor, signed in or not. There are no analytics or
+  tracking cookies. Fonts are loaded from Google Fonts.</p>
+
+  <h2 id="signout">Signing out</h2>
+  <p>"Sign out" deletes both cookies and <b>revokes the token at GitHub</b>, so it stops working
+  even if a copy survived somewhere. You can also revoke it yourself at any time: GitHub →
+  Settings → Applications → Authorized OAuth Apps → Polyjury.</p>
+
+  <h2 id="byok">Your own Nebius key (BYOK)</h2>
+  <p>You can run Polyjury on your own Nebius Token Factory key instead of the demo's credits.
+  You do not need to sign in for this.</p>
+  <ul>
+    <li>When you add it, the key is checked once with Nebius (by listing the models it can use),
+      then handed back to your browser encrypted. It is never shown again or echoed.</li>
+    <li>Used for: every model call of your runs — the three jurors, and Nemotron merging, writing
+      the proofs, auditing them, writing fixes and judging the upstream check. Those tokens bill
+      to your Nebius account.</li>
+    <li>Not used for: the Sandbox microVMs that run the proofs and the Tavily web search. Those
+      still run on the demo's accounts, which is why rate limits still apply.</li>
+  </ul>
+
+  <h2 id="code">What happens to the code you submit</h2>
+  <p>Only <b>public</b> GitHub repositories (or one folder of one) can be submitted, signed in or
+  not. Their code is sent to the models on Nebius Token Factory and to a Nebius Sandbox microVM
+  that runs the proofs; short descriptions of each claim are sent to Tavily to search the web.
+  The download sits in the serverless instance's temporary storage while it is warm, so repeated
+  runs do not fetch it again; it is not saved anywhere permanent.</p>
+
+  <h2 id="contact">Questions</h2>
+  <p>Open an issue at
+  <a href="https://github.com/cine1052rene/polyjury/issues" target="_blank" rel="noopener">github.com/cine1052rene/polyjury</a>.
+  The code that does all of the above is in that repository: <code>polyjury/accounts.py</code>,
+  <code>polyjury/context.py</code> and <code>webui/account.js</code>.</p>
+</main>
+</body>
+</html>

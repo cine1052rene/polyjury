@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from polyjury import chair, collect, fix_code, fix_robot, known, panel, pipeline, report, robot, runner, sources  # noqa: E402
+from polyjury import accounts, chair, collect, fix_code, fix_robot, known, panel, pipeline, report, robot, runner, sources  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 UI = ROOT / "webui"
@@ -35,6 +35,7 @@ LIMITS = {  # kind: (per visitor, whole site)
 _rate: dict[str, list[float]] = {}
 
 app = FastAPI(title="cross-verification")
+app.include_router(accounts.router)
 
 
 def _visitor(request: Request) -> str:
@@ -45,9 +46,14 @@ def _visitor(request: Request) -> str:
 
 
 def _guard(request: Request, kind: str) -> None:
+    """Every API step starts here: it binds this visitor's credentials (or none) to the request
+    and applies the limits. Signed in, the limit follows the GitHub account rather than the
+    network address, and is doubled."""
+    account, _ = accounts.bind(request)
     now = time.time()
     per_visitor, site = LIMITS[kind]
-    keys = [(f"{kind}:{_visitor(request)}", per_visitor), (f"{kind}:*", site)]
+    who = f"gh:{account}" if account else _visitor(request)
+    keys = [(f"{kind}:{who}", per_visitor * (2 if account else 1)), (f"{kind}:*", site)]
     for key, limit in keys:
         if len([t for t in _rate.get(key, []) if now - t < RATE_WINDOW]) >= limit:
             raise HTTPException(429, "Too many runs from this demo right now. Try again in a few minutes.")

@@ -7,9 +7,24 @@ import time
 from typing import Any
 
 import config
-from core.nebius_client import get_client
+from core.nebius_client import NebiusClient, get_client
+from polyjury import context
 
 NEMOTRON = config.TEXT_MODEL
+_byok: dict[str, NebiusClient] = {}
+
+
+def client() -> NebiusClient:
+    """The visitor's own key if they brought one (BYOK), otherwise the demo's. Clients are
+    kept per key only for the life of this serverless instance, never written anywhere."""
+    key = context.NEBIUS_KEY.get()
+    if not key:
+        return get_client()
+    if key not in _byok:
+        if len(_byok) > 32:
+            _byok.clear()
+        _byok[key] = NebiusClient(api_key=key)
+    return _byok[key]
 
 
 def chat(system: str, user: str, *, think: bool | None = True, model: str | None = None,
@@ -17,7 +32,7 @@ def chat(system: str, user: str, *, think: bool | None = True, model: str | None
          timeout: float | None = None) -> tuple[str, float]:
     """Run one chat call. Returns (text, seconds)."""
     t0 = time.time()
-    text = get_client().chat(user, system=system, model=model or NEMOTRON,
+    text = client().chat(user, system=system, model=model or NEMOTRON,
                              temperature=temperature, max_tokens=max_tokens,
                              thinking=think, timeout=timeout)
     return text, round(time.time() - t0, 2)

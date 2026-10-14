@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import difflib
 import time
-from concurrent.futures import ThreadPoolExecutor
+from polyjury.context import Pool as ThreadPoolExecutor
 
 from polyjury.chair import SCRIPT_RE
 from polyjury.llm import chat

@@ -7,7 +7,7 @@ names it, so the report can point somewhere other than at itself.
 from __future__ import annotations
 
 import re
-from concurrent.futures import ThreadPoolExecutor
+from polyjury.context import Pool as ThreadPoolExecutor
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 

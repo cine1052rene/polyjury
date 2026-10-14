@@ -11,7 +11,8 @@ import json
 import os
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from polyjury import context
+from polyjury.context import Pool as ThreadPoolExecutor
 from pathlib import Path, PurePosixPath
 
 MAX_DOWNLOADS = 80
@@ -20,9 +21,14 @@ MANIFESTS = {"pyproject.toml", "requirements.txt", "requirements/base.txt", "req
 
 def _get(url: str, timeout: int = 30) -> bytes:
     headers = {"User-Agent": "polyjury", "Accept": "application/vnd.github+json"}
-    token = os.environ.get("GITHUB_TOKEN", "")
+    token = context.github_token()
     if token and "api.github.com" in url:
-        headers["Authorization"] = f"Bearer {token}"
+        try:
+            return urllib.request.urlopen(urllib.request.Request(
+                url, headers={**headers, "Authorization": f"Bearer {token}"}), timeout=timeout).read()
+        except urllib.error.HTTPError as exc:
+            if exc.code != 401:  # a revoked visitor token: fall back to an anonymous read
+                raise
     return urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=timeout).read()
 
 

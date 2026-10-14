@@ -15,8 +15,6 @@ const state = { target: "", bundle: "", claims: [], cited: new Set() };
 const MODES = {
   repo: { title: "Repository", note: "One AI wrote your code. Don't let one AI judge it.",
           hint: "A whole repository, or one folder of it: open the folder on GitHub and paste that address. About two minutes." },
-  snippet: { title: "Single file", note: "Paste what your assistant wrote and let the jury read it.",
-             hint: "Nothing is stored. Proofs still run in a sandbox, never in your browser." },
   recorded: { title: "Recorded verdict", note: "A finished case on a real public repository.",
               hint: "Replayed at reading speed — every verdict below actually happened." },
 };
@@ -308,6 +306,7 @@ async function runRepo(target) {
   fixPromptBlock(s5.body, prompt);
   s5.done();
   await Promise.all([upstream, fixStep(target, proved)]);
+  return { name: repo.name, findings: findings.length, claims: proved };
 }
 
 // Step 6: for every defect that was reproduced by running it, write a patch and run the same
@@ -396,7 +395,6 @@ function setMode(mode) {
   $("mode-note").textContent = MODES[mode].note;
   $("composer-hint").textContent = MODES[mode].hint;
   $("row-repo").hidden = mode !== "repo";
-  $("row-snippet").hidden = mode !== "snippet";
   $("run-form").hidden = mode === "recorded";
   if (mode === "recorded") {
     clearTimeline();
@@ -432,13 +430,11 @@ $("run-form").addEventListener("submit", async (event) => {
   buttons.forEach((b) => { b.disabled = true; });
   clearTimeline();
   try {
-    if (MODE === "repo") {
-      const target = $("target").value.trim();
-      if (!target) throw new Error("Paste a public GitHub repository URL.");
-      await runRepo(target);
-    } else {
-      throw new Error("Pasting a single file is not wired up yet — use a repository for now.");
-    }
+    const target = $("target").value.trim();
+    if (!target) throw new Error("Paste a public GitHub repository URL.");
+    const result = await runRepo(target);
+    // account.js keeps a short record of the case in this browser (never on the server)
+    if (window.saveCase) window.saveCase(target, result);
   } catch (err) {
     fail(err.message);
   } finally {

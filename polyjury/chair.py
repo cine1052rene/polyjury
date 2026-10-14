@@ -4,7 +4,7 @@ from __future__ import annotations
 import ast
 import json
 import re
-from concurrent.futures import ThreadPoolExecutor
+from polyjury.context import Pool as ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from polyjury.llm import chat, parse_json

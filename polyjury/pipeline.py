@@ -5,7 +5,7 @@ import hashlib
 import os
 import time
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
+from polyjury.context import Pool as ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 

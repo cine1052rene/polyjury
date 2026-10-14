@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from concurrent.futures import ThreadPoolExecutor
+from polyjury.context import Pool as ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from polyjury.llm import chat, parse_json

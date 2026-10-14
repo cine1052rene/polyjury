@@ -15,9 +15,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from polyjury import context
+from polyjury.context import Pool as ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from core.tavily_client import get_search
@@ -55,9 +57,14 @@ _canonical: dict[str, str] = {}
 
 def _gh_request(url: str) -> dict:
     req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "polyjury"})
-    token = os.environ.get("GITHUB_TOKEN")
+    token = context.github_token()
     if token:
-        req.add_header("Authorization", f"Bearer {token}")
+        try:
+            authed = urllib.request.Request(url, headers={**dict(req.header_items()), "Authorization": f"Bearer {token}"})
+            return json.loads(urllib.request.urlopen(authed, timeout=30).read())
+        except urllib.error.HTTPError as exc:
+            if exc.code != 401:  # a revoked visitor token: fall back to an anonymous read
+                raise
     return json.loads(urllib.request.urlopen(req, timeout=30).read())
 
 

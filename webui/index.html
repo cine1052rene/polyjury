@@ -26,16 +26,17 @@
       <span class="mode-icon">&#9679;</span>
       <span><b>Repository</b><i>a public GitHub project</i></span>
     </button>
-    <button class="mode" data-mode="snippet" type="button">
-      <span class="mode-icon">&#9679;</span>
-      <span><b>Single file</b><i>paste the code itself</i></span>
-    </button>
 
     <p class="rail-label">Case files</p>
     <button class="mode" data-mode="recorded" type="button">
       <span class="mode-icon">&#9634;</span>
       <span><b>Recorded verdict</b><i>a finished case, replayed</i></span>
     </button>
+
+    <div id="history-box" hidden>
+      <p class="rail-label">Your cases <span class="muted">· this browser only</span></p>
+      <ul id="history"></ul>
+    </div>
   </nav>
 
   <div class="rail-foot">
@@ -43,7 +44,20 @@
     <ul id="court-status">
       <li><span class="dot"></span> jurors <b id="juror-count">…</b></li>
       <li><span class="dot" id="sandbox-dot"></span> sandbox <b id="sandbox-state">checking</b></li>
+      <li><span class="dot" id="credit-dot"></span> model credits <b id="credit-state">demo</b></li>
     </ul>
+    <button class="linkish" id="byok-open" type="button">Use your own Nebius key</button>
+    <form id="byok-form" hidden>
+      <input id="byok-key" type="password" autocomplete="off" spellcheck="false"
+             placeholder="Nebius Token Factory API key" />
+      <div class="byok-actions">
+        <button class="small" type="submit">Use it</button>
+        <button class="small ghost" id="byok-clear" type="button" hidden>Stop using it</button>
+        <a class="help" href="/privacy.html#byok" target="_blank" rel="noopener"
+           title="Where your key is kept" aria-label="Where your key is kept">?</a>
+      </div>
+      <p class="byok-note" id="byok-note">Checked once with Nebius, then kept only in an encrypted cookie in this browser.</p>
+    </form>
   </div>
 </aside>
 
@@ -53,21 +67,29 @@
       <h1 id="mode-title">Repository</h1>
       <p id="mode-note">One AI wrote your code. Don't let one AI judge it.</p>
     </div>
-    <button class="toggle" id="sources-toggle" type="button" aria-pressed="false">Sources</button>
+    <div class="bar-actions">
+      <div class="account" id="account" hidden>
+        <a class="toggle signin" id="signin" href="/api/auth/login" hidden>Sign in with GitHub</a>
+        <span class="me" id="me" hidden>
+          <img id="me-avatar" alt="" width="22" height="22" />
+          <b id="me-login"></b>
+          <button class="linkish" id="signout" type="button">Sign out</button>
+        </span>
+        <a class="help" href="/privacy.html" target="_blank" rel="noopener"
+           title="How sign-in works and what is stored" aria-label="Sign-in and data policy">?</a>
+      </div>
+      <button class="toggle" id="sources-toggle" type="button" aria-pressed="false">Sources</button>
+    </div>
   </header>
 
   <section class="composer">
     <form id="run-form">
       <div class="row" id="row-repo">
-        <input id="target" type="url" spellcheck="false"
+        <input id="target" type="url" spellcheck="false" list="my-repos"
                placeholder="https://github.com/owner/repo  or  …/tree/main/some/folder" />
         <button class="primary" id="run-btn" type="submit">Convene the jury</button>
       </div>
-      <div class="row col" id="row-snippet" hidden>
-        <textarea id="snippet" rows="9" spellcheck="false"
-                  placeholder="Paste a file your AI assistant wrote for you…"></textarea>
-        <button class="primary" id="run-btn-2" type="submit">Convene the jury</button>
-      </div>
+      <datalist id="my-repos"></datalist>
     </form>
     <p class="hint" id="composer-hint">A whole repository, or one folder of it: open the folder on GitHub and paste that address. About two minutes.</p>
     <p class="error" id="error" hidden></p>
@@ -92,5 +114,6 @@
 </aside>
 
 <script src="/app.js"></script>
+<script src="/account.js"></script>
 </body>
 </html>
