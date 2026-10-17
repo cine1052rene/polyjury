@@ -102,6 +102,19 @@ video { z-index:1; }
 .cr span { color:var(--muted); font-size:26px; }
 .url { font:800 72px Inter; color:var(--accent); margin-top:56px; letter-spacing:-.03em; }
 .repo { font:500 26px var(--mono); color:var(--muted); margin-top:12px; }
+.vs { display:flex; gap:40px; margin-top:44px; }
+.col { flex:1; border-radius:24px; padding:40px 44px; border:2px solid var(--line); background:var(--panel); }
+.col.win { border-color:var(--accent); box-shadow:0 0 50px rgba(118,227,161,.22); }
+.lab { font:700 24px var(--mono); letter-spacing:.2em; text-transform:uppercase; color:var(--muted); }
+.col.win .lab { color:var(--accent); }
+.what { font-size:76px; font-weight:800; letter-spacing:-.035em; margin-top:14px; }
+.col.dim .what { color:#9aa3b7; }
+.sub2 { font-size:30px; color:var(--muted); margin-top:12px; }
+.badges { display:flex; gap:28px; margin-top:46px; }
+.bdg { flex:1; border-left:4px solid var(--accent); padding:4px 0 4px 22px; }
+.bdg b { display:block; font-size:36px; letter-spacing:-.02em; }
+.bdg span { display:block; font-size:25px; color:var(--muted); margin-top:6px; line-height:1.3; }
+.badge.w { top:174px; }
 """
 
 
@@ -112,14 +125,14 @@ def side(kicker: str, title: str, items: list[str], extra: str = "", src: str = 
 
 
 def build() -> None:
-    n = {k: dur(A / f"{k}.wav") for k in [f"n{i}" for i in range(9)]}
-    clip = {k: dur(A / f"{k}.mp4") for k in ("arm", "m_a", "m_b", "m_up", "m_fix1", "m_fix2", "c_a", "c_b")}
+    n = {k: dur(A / f"{k}.wav") for k in [f"n{i}" for i in range(10)]}
+    clip = {k: dur(A / f"{k}.mp4") for k in ("arm", "m_a", "m_b", "m_up", "m_fix1", "m_fix2", "c_a", "c_b", "t_a", "t_b", "t_c")}
     need = lambda k: LEAD + n[k] + TAIL  # noqa: E731
     lens = {
-        "s0": need("n0"), "s1": max(need("n1"), clip["arm"]), "s2": need("n2"),
+        "s0": max(need("n0"), clip["arm"] + 3.0), "s1": need("n1"), "s2": need("n2"),
         "s3": max(need("n3"), clip["m_a"] + clip["m_b"]), "s4": need("n4"),
         "s5": max(need("n5"), clip["m_fix1"] + clip["m_fix2"]), "s6": max(need("n6"), clip["c_a"] + clip["c_b"]),
-        "s7": need("n7"), "s8": need("n8") + 0.6,
+        "s7": need("n7"), "s8": max(need("n8"), clip["t_a"] + clip["t_b"] + clip["t_c"]), "s9": need("n9") + 0.6,
     }
     t, at = 0.0, {}
     for k, v in lens.items():
@@ -138,17 +151,24 @@ def build() -> None:
 
     up_card = S("s4") + clip["m_up"]
     html: list[str] = [
-        scene("s0", '<div class="pad" style="padding-top:250px"><p class="kicker">Polyjury</p>'
-              '<h1 class="hero" id="hero">No bug report<br>without a repro.</h1><div class="verbs">'
-              '<span class="verb v">Find it.</span><span class="verb v">Prove it.</span>'
-              '<span class="verb v">Fix it.</span><span class="verb v g">Prove the fix.</span></div>'
-              '<p class="sub" id="s0sub">for code — and for robots</p></div>'),
-        scene("s1", '<div class="frame wide"></div>' + side(
-            "The bug", "SO-101, inside its own joint limits",
-            ["MuJoCo render of the <b>SO-ARM100</b> repository's own URDF",
-             "Only the elbow moves — and the gripper enters the shoulder"],
-            '<p class="big" id="deg">86.5° <span style="color:var(--muted);font-size:34px;font-weight:600">'
-            'contact · file allows 96.8°</span></p>')),
+        scene("s0", '<div class="frame wide"></div>'
+              '<img class="paper" id="h332" src="assets/pr332.png" style="left:110px;top:150px;width:1000px">' + side(
+                  "Found by Polyjury", "A bug in DeepMind's robot arm model",
+                  ["MuJoCo Menagerie, SO-101: the elbow drives the gripper into the shoulder, inside its own joint limits",
+                   "render: the same elbow in the arm maker's own URDF (SO-ARM100)"],
+                  '<div id="h0"><p class="note" style="font-size:28px;color:#c9d1e1;margin-top:28px">'
+                  '<b style="color:var(--accent)">Issue #325</b> — reported by me, 28 Sep</p>'
+                  '<p class="note" style="font-size:28px;color:#c9d1e1"><b style="color:var(--accent)">PR #332</b> — '
+                  'someone else\'s fix, open (17 Oct)</p></div>')),
+        scene("s1", '<div class="pad"><p class="kicker">Why it is different</p><div class="vs">'
+              '<div class="col dim" id="d1"><p class="lab">Most AI reviewers</p><p class="what">“This might be wrong.”</p>'
+              '<p class="sub2">an opinion: you check it yourself</p></div>'
+              '<div class="col win" id="d2"><p class="lab">Polyjury</p><p class="what">A proof that ran.</p>'
+              '<p class="sub2">confirmed only when it reproduces</p></div></div><div class="badges">'
+              '<div class="bdg"><b>Proof by execution</b><span>every claim runs in a Nebius Sandbox microVM</span></div>'
+              '<div class="bdg"><b>Robots by simulation</b><span>MuJoCo measures what jurors cannot read</span></div>'
+              '<div class="bdg"><b>Checks upstream first</b><span>issues, pull requests and the web, before you report</span></div>'
+              '</div></div>'),
         scene("s2", '<div class="pad"><p class="kicker">How a verdict is reached</p>'
               '<h1 class="title">Every claim has to <em>prove itself.</em></h1><div class="flow">'
               '<div class="node" id="f1"><div class="lit"></div><p class="num">01</p><h3>Three jurors</h3>'
@@ -172,15 +192,13 @@ def build() -> None:
                   '<div id="v3"><p class="big">1 reproduced</p><p class="note">by simulation: the elbow collision · '
                   '5 juror claims were false alarms</p><span class="stamp">CONFIRMED · RAN IT</span></div>')),
         scene("s4", '<div class="frame" id="f4frame"></div><span class="badge" id="b4">1× speed</span>'
-              '<img class="paper" id="p325" src="assets/issue325.png" style="left:70px;top:70px">'
-              '<img class="paper" id="p332" src="assets/pr332.png" style="left:270px;top:250px">' + side(
+              '<img class="paper" id="p332" src="assets/pr332.png" style="left:110px;top:90px;width:1000px">' + side(
                   "Already reported?", "Search before you report",
                   ["the repository's issues and pull requests, plus <b>Tavily</b> web search",
                    "<b>Nemotron</b> judges whether a hit is the same defect"],
                   '<div id="v4"><p class="note" style="font-size:26px;color:#c9d1e1;margin-top:26px">'
-                  '<b style="color:var(--accent)">#325</b> — filed by me, 28 Sep, from an earlier Polyjury run</p>'
-                  '<p class="note" style="font-size:26px;color:#c9d1e1"><b style="color:var(--accent)">PR #332</b> — '
-                  'another contributor: “Fixes #325”. Open, not merged (17 Oct)</p></div>')),
+                  'found on the live run: <b style="color:var(--accent)">PR #332</b>, another contributor\'s '
+                  '“Fixes #325”. Open, not merged (17 Oct)</p></div>')),
         scene("s5", '<div class="frame"></div><span class="badge" id="b5a">10× speed</span>'
               '<span class="badge" id="b5b">1× speed</span>' + side(
                   "Fix it, then prove the fix", "Same sealed proof, patched file",
@@ -202,20 +220,28 @@ def build() -> None:
               '<span class="stamp warn" id="nah" style="margin-left:20px;align-self:center">NEEDS A HUMAN</span></div>'
               '<div class="refs" id="refs"><p>elbow self-collision → <b>issue #325</b>, filed by me</p>'
               '<p>wrist range mismatch → <b>PR #324</b>, someone else\'s — merged</p></div></div>'),
-        scene("s8", '<div class="pad" style="padding-top:110px"><p class="kicker">Built on</p><div class="credits">'
+        scene("s8", '<div class="frame wide"></div><span class="badge w" id="b8a">2× speed</span>'
+              '<span class="badge w" id="b8b">1× speed</span>' + side(
+                  "Try it · the live site, 17 Oct", "polyjury.vercel.app",
+                  ["<b>Recorded verdict</b>: a finished case, replayed", "<b>Sign in with GitHub</b>: optional, asks for no permissions",
+                   "<b>Your own Nebius key</b>: instead of the demo credits", "<b>MCP server</b>: Claude Code or Codex can ask for a verdict"])),
+        scene("s9", '<div class="pad" style="padding-top:110px"><p class="kicker">Built on</p><div class="credits">'
               '<p class="cr"><i>Jurors</i>Nebius Token Factory <span>DeepSeek-V4-Pro · Qwen3-235B · gpt-oss-120b</span></p>'
               '<p class="cr"><i>Presiding</i>NVIDIA Nemotron <span>nemotron-3-super-120b-a12b</span></p>'
               '<p class="cr"><i>Proofs</i>Nebius Sandboxes <span>one microVM per claim · MuJoCo for robots</span></p>'
               '<p class="cr"><i>Already known?</i>Tavily + GitHub</p></div>'
               '<p class="url" id="url">polyjury.vercel.app</p><p class="repo">github.com/cine1052rene/polyjury · Apache-2.0'
-              ' · narration: AI voice (Supertonic TTS)</p></div>'),
-        video("vArm", "arm", S("s1"), "shot wide"),
+              ' · narration: AI voice (Supertonic TTS)</p>'
+              '<p class="repo" style="color:var(--accent)">try it: Recorded verdict replays a finished case, no setup</p></div>'),
+        video("vArm", "arm", S("s0"), "shot wide"),
+        video("vTa", "t_a", S("s8"), "shot wide"), video("vTb", "t_b", S("s8") + clip["t_a"], "shot wide"),
+        video("vTc", "t_c", S("s8") + clip["t_a"] + clip["t_b"], "shot wide"),
         video("vMa", "m_a", S("s3")), video("vMb", "m_b", S("s3") + clip["m_a"]),
         video("vUp", "m_up", S("s4")),
         video("vF1", "m_fix1", S("s5")), video("vF2", "m_fix2", S("s5") + clip["m_fix1"]),
         video("vCa", "c_a", S("s6")), video("vCb", "c_b", S("s6") + clip["c_a"]),
     ]
-    starts = {f"n{i}": round(at[f"s{i}"] + LEAD, 3) for i in range(9)}
+    starts = {f"n{i}": round(at[f"s{i}"] + LEAD, 3) for i in range(10)}
     html += [f'<audio id="vo{k}" src="assets/{k}.wav" data-start="{v}" data-duration="{round(n[k], 3)}" '
              f'data-track-index="3"></audio>' for k, v in starts.items()]
 
@@ -225,19 +251,21 @@ def build() -> None:
           "onUpdate:()=>{ document.querySelector(sel).textContent = dec ? o.v.toFixed(dec) : Math.round(o.v); }}, at); };"]
     a = lambda k, dt: round(S(k) + dt, 3)  # noqa: E731
     js += [
-        f'tl.from("#hero", {{y:60, opacity:0, duration:.8, ease:E}}, {a("s0", .1)});',
-        f'tl.from(".v", {{y:30, opacity:0, duration:.45, ease:E, stagger:.55}}, {a("s0", .9)});',
-        f'tl.from("#s0sub", {{opacity:0, duration:.6}}, {a("s0", 3.4)});',
-        f'tl.from("#s1 .side > .kicker, #s1 .side > h2", {{x:40, opacity:0, duration:.6, ease:E, stagger:.15}}, {a("s1", .2)});',
-        f'tl.from("#s1 .it", {{x:30, opacity:0, duration:.5, ease:E, stagger:1.6}}, {a("s1", 1.0)});',
-        f'tl.from("#deg", {{scale:.7, opacity:0, duration:.6, ease:"back.out(2)"}}, {a("s1", 4.2)});',
+        f'tl.from("#s0 .side > .kicker, #s0 .side > h2", {{x:40, opacity:0, duration:.6, ease:E, stagger:.15}}, {a("s0", .2)});',
+        f'tl.from("#s0 .it", {{x:30, opacity:0, duration:.5, ease:E, stagger:2.2}}, {a("s0", 1.4)});',
+        f'tl.from("#h0 p", {{y:20, opacity:0, duration:.5, ease:E, stagger:2.0}}, {a("s0", 7.6)});',
+        f'tl.fromTo("#h332", {{y:80, opacity:0}}, {{y:0, opacity:1, duration:.7, ease:E}}, {a("s0", clip["arm"])});',
+        f'tl.from("#d1", {{x:-50, opacity:0, duration:.6, ease:E}}, {a("s1", .3)});',
+        f'tl.from("#d2", {{x:50, opacity:0, duration:.6, ease:E}}, {a("s1", 3.3)});',
+        f'tl.to("#d1", {{opacity:.55, duration:.5}}, {a("s1", 3.6)});',
+        f'tl.from(".bdg", {{y:30, opacity:0, duration:.5, ease:E, stagger:1.7}}, {a("s1", 6.0)});',
         f'tl.from("#s2 .kicker, #s2 .title", {{y:30, opacity:0, duration:.6, ease:E, stagger:.12}}, {a("s2", .1)});',
-        f'tl.from("#s2 .node", {{y:50, opacity:0, duration:.6, ease:E, stagger:.1}}, {a("s2", .5)});',
-        f'tl.to("#s2 .node", {{opacity:.38, duration:.3}}, {a("s2", 1.2)});',
+        f'tl.from("#s2 .node", {{y:50, duration:.6, ease:E, stagger:.1}}, {a("s2", .3)});',
+        f'tl.set("#s2 .node", {{opacity:.38}}, {a("s2", 0)});',
         f'tl.from(".c", {{scale:.4, opacity:0, duration:.35, ease:"back.out(2)", stagger:.12}}, {a("s2", 1.7)});',
-        f'tl.from("#sim", {{y:24, opacity:0, duration:.6, ease:E}}, {a("s2", lens["s2"] - 4.2)});',
+        f'tl.from("#sim", {{y:24, opacity:0, duration:.6, ease:E}}, {a("s2", lens["s2"] - 2.6)});',
     ]
-    for i, dt in enumerate([1.5, 4.0, 6.6, 8.9], 1):
+    for i, dt in enumerate([0.9, 3.9, 6.1, 8.2], 1):
         js.append(f'tl.to("#f{i}", {{opacity:1, duration:.35}}, {a("s2", dt)}).to("#f{i} .lit", {{opacity:1, duration:.35}}, {a("s2", dt)});')
         if i < 4:
             js.append(f'tl.to("#k{i}", {{scaleX:1, duration:.9, ease:"power2.inOut"}}, {a("s2", dt + .9)});')
@@ -255,17 +283,19 @@ def build() -> None:
         f'tl.from("#s4 .frame", {{opacity:0, duration:.4}}, {a("s4", 0)});',
         f'tl.from("#s4 .side > .kicker, #s4 .side > h2", {{x:40, opacity:0, duration:.55, ease:E, stagger:.12}}, {a("s4", .15)});',
         f'tl.from("#s4 .it", {{x:30, opacity:0, duration:.45, ease:E, stagger:1.6}}, {a("s4", 1.0)});',
-        f'tl.set("#p325, #p332", {{opacity:0}}, {a("s4", 0)});',
+        f'tl.set("#p332", {{opacity:0}}, {a("s4", 0)});',
         f'tl.set("#b4", {{opacity:0}}, {round(up_card, 3)});',
-        f'tl.fromTo("#p325", {{y:80, opacity:0}}, {{y:0, opacity:1, duration:.7, ease:E}}, {round(up_card, 3)});',
-        f'tl.fromTo("#p332", {{y:120, opacity:0, rotation:2}}, {{y:0, opacity:1, rotation:0, duration:.8, ease:E}}, {round(up_card + 4.4, 3)});',
-        f'tl.from("#v4 p", {{y:20, opacity:0, duration:.5, ease:E, stagger:4.4}}, {round(up_card + .5, 3)});',
+        f'tl.fromTo("#p332", {{y:100, opacity:0}}, {{y:0, opacity:1, duration:.7, ease:E}}, {round(up_card, 3)});',
+        f'tl.from("#v4 p", {{y:20, opacity:0, duration:.5, ease:E}}, {round(up_card + .4, 3)});',
         f'tl.from("#s7 .kicker, #s7 .title", {{y:30, opacity:0, duration:.6, ease:E, stagger:.12}}, {a("s7", .1)});',
         f'tl.from("#s7 .stat, .a7", {{y:30, opacity:0, duration:.5, ease:E, stagger:.25}}, {a("s7", .6)});',
         f'tl.fromTo("#nah", {{scale:1.8, opacity:0, rotation:-6}}, {{scale:1, opacity:1, rotation:-3, duration:.45, ease:"back.out(2.2)"}}, {a("s7", 6.2)});',
         f'tl.from("#refs p", {{y:20, opacity:0, duration:.5, ease:E, stagger:.5}}, {a("s7", 7.4)});',
-        f'tl.from("#s8 .kicker, .cr", {{x:-30, opacity:0, duration:.55, ease:E, stagger:1.4}}, {a("s8", .2)});',
-        f'tl.from("#url, #s8 .repo", {{y:30, opacity:0, duration:.7, ease:E, stagger:.3}}, {a("s8", 6.4)});',
+        f'tl.from("#s8 .side > .kicker, #s8 .side > h2", {{x:40, opacity:0, duration:.55, ease:E, stagger:.12}}, {a("s8", .15)});',
+        f'tl.from("#s8 .it", {{x:30, opacity:0, duration:.45, ease:E, stagger:2.6}}, {a("s8", 1.0)});',
+        f'tl.set("#b8b", {{opacity:0}}, {a("s8", 0)}).set("#b8a", {{opacity:0}}, {a("s8", clip["t_a"])}).set("#b8b", {{opacity:1}}, {a("s8", clip["t_a"])});',
+        f'tl.from("#s9 .kicker, .cr", {{x:-30, opacity:0, duration:.55, ease:E, stagger:1.4}}, {a("s9", .2)});',
+        f'tl.from("#url, #s9 .repo", {{y:30, opacity:0, duration:.7, ease:E, stagger:.3}}, {a("s9", 6.4)});',
         f'tl.to("#root .pad, #root .side", {{opacity:0, duration:.8}}, {round(total - .9, 3)});',
     ]
     js += [f'cnt("#q1", 8, {a("s7", .9)}, 1.0); cnt("#q2", 11, {a("s7", 2.0)}, 1.0); cnt("#q3", 2, {a("s7", 3.6)}, .6);',
