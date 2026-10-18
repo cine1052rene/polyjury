@@ -442,6 +442,10 @@ $("run-form").addEventListener("submit", async (event) => {
   }
 });
 
+// polyjury.vercel.app/#recorded opens the finished case straight away (a link for people who
+// only want to see what a verdict looks like, without convening a jury)
+if (location.hash === "#recorded") setMode("recorded");
+
 fetch("/api/models")
   .then((r) => r.json())
   .then((d) => {
