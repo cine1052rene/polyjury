@@ -161,7 +161,7 @@ def build() -> None:
                   '<p class="note" style="font-size:28px;color:#c9d1e1"><b style="color:var(--accent)">PR #332</b> — '
                   'someone else\'s fix, open (17 Oct)</p></div>')),
         scene("s1", '<div class="pad"><p class="kicker">Why it is different</p><div class="vs">'
-              '<div class="col dim" id="d1"><p class="lab">Most AI reviewers</p><p class="what">“This might be wrong.”</p>'
+              '<div class="col dim" id="d1"><p class="lab">A typical AI review</p><p class="what">“This might be wrong.”</p>'
               '<p class="sub2">an opinion: you check it yourself</p></div>'
               '<div class="col win" id="d2"><p class="lab">Polyjury</p><p class="what">A proof that ran.</p>'
               '<p class="sub2">confirmed only when it reproduces</p></div></div><div class="badges">'
