@@ -201,6 +201,28 @@ def sim_claims(findings: list[dict]) -> list[dict]:
                             "limit: on real hardware that strips gears or cracks printed parts."}]
 
 
+INCLUDE = re.compile(r'<include\b[^>]*\bfile="([^"]+)"')
+
+
+def model_file(root: Path, files: list[Path], file: str) -> str:
+    """A MuJoCo scene (scene.xml, scene_box.xml) has no joints of its own: it includes the robot
+    and adds a floor or a box. Swept as it is, the arm "collides" with the floor and the fix
+    cannot find the joint limits, so the simulator is pointed at the included robot instead."""
+    rel = Path(file.replace("\\", "/"))
+    try:
+        text = (root / rel).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return file
+    if "<joint" in text:
+        return file
+    known = {Path(f).as_posix() for f in files}
+    for inc in INCLUDE.findall(text):
+        cand = (rel.parent / inc).as_posix().removeprefix("./")
+        if cand in known and is_description(root / cand):
+            return cand
+    return file
+
+
 def sim_script(root: Path, files: list[Path], file: str) -> str:
     """The fixed proof, or '' when the file is not a robot description in this repository."""
     rel = Path(file.replace("\\", "/"))

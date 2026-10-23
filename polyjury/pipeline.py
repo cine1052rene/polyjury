@@ -48,6 +48,7 @@ def prove(claim: chair.Claim, bundle: str, repo: collect.Repo, proofs: int | Non
     and run `proofs` times independently, and only a verdict they agree on is reported."""
     simulated = robot.SIM_MODEL in claim.models
     if simulated:  # rebuilt here from the template: whatever script the client sent is ignored
+        claim.file = robot.model_file(repo.root, repo.files, claim.file)
         claim.script = robot.sim_script(repo.root, repo.files, claim.file)
         claim.proof_kind, claim.what_it_proves = "dynamic", "MuJoCo sweeps every joint alone from home; exact meshes confirm each contact"
         if not claim.script:

@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/style.css" />
+<link rel="stylesheet" href="/style.css?v=2" />
 </head>
 <body class="app">
 
@@ -30,7 +30,11 @@
     <p class="rail-label">Case files</p>
     <button class="mode" data-mode="recorded" type="button">
       <span class="mode-icon">&#9634;</span>
-      <span><b>Recorded verdict</b><i>a finished case, replayed</i></span>
+      <span><b>Robot arm</b><i>DeepMind's SO-101 model · replayed</i></span>
+    </button>
+    <button class="mode" data-mode="recorded-code" type="button">
+      <span class="mode-icon">&#9634;</span>
+      <span><b>Python CLI</b><i>tiangolo/fastapi-cli · replayed</i></span>
     </button>
 
     <div id="history-box" hidden>
@@ -97,9 +101,26 @@
 
   <section class="timeline" id="timeline">
     <div class="idle" id="idle">
-      <p>Nothing before the court yet.</p>
       <p class="muted">Three models read your code separately, Nemotron presides, and every claim
         is decided by running a script — not by asking a model again.</p>
+      <p class="idle-label">No repository to hand? Start with a finished case:</p>
+      <div class="samples">
+        <button class="sample" type="button" data-open="recorded">
+          <b>Robot arm · DeepMind MuJoCo Menagerie</b>
+          <i>The elbow can drive the gripper into the shoulder. Found by simulation, reported as issue #325.</i>
+          <span>Replay the verdict · about 15 seconds</span>
+        </button>
+        <button class="sample" type="button" data-open="recorded-code">
+          <b>Python CLI · tiangolo/fastapi-cli</b>
+          <i>Eight claims from three jurors; each one had to survive a script run in a sandbox.</i>
+          <span>Replay the verdict · about 15 seconds</span>
+        </button>
+        <button class="sample live" type="button" id="try-sample">
+          <b>Run it live yourself</b>
+          <i>Fills in DeepMind's SO-101 folder. You press the button; about three minutes.</i>
+          <span>Use the sample address</span>
+        </button>
+      </div>
     </div>
   </section>
 </main>
@@ -113,7 +134,8 @@
   <div id="citations"></div>
 </aside>
 
-<script src="/app.js"></script>
+<script src="/verdict.js?v=2"></script>
+<script src="/app.js?v=2"></script>
 <script src="/account.js"></script>
 </body>
 </html>

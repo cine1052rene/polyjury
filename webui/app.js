@@ -15,7 +15,11 @@ const state = { target: "", bundle: "", claims: [], cited: new Set() };
 const MODES = {
   repo: { title: "Repository", note: "One AI wrote your code. Don't let one AI judge it.",
           hint: "A whole repository, or one folder of it: open the folder on GitHub and paste that address. About two minutes." },
-  recorded: { title: "Recorded verdict", note: "A finished case on a real public repository.",
+  recorded: { title: "Recorded verdict · robot arm", file: "/example-robot.json",
+              note: "A finished case on DeepMind's model of the SO-101 arm (MuJoCo Menagerie).",
+              hint: "Replayed at reading speed — every verdict below actually happened." },
+  "recorded-code": { title: "Recorded verdict · Python CLI", file: "/example.json",
+              note: "A finished case on a real public repository (tiangolo/fastapi-cli).",
               hint: "Replayed at reading speed — every verdict below actually happened." },
 };
 
@@ -305,7 +309,8 @@ async function runRepo(target) {
   const { prompt } = await api("/api/fix-prompt", { findings: proved });
   fixPromptBlock(s5.body, prompt);
   s5.done();
-  await Promise.all([upstream, fixStep(target, proved)]);
+  const [, fixes] = await Promise.all([upstream, fixStep(target, proved)]);
+  verdictTop(proved, findings.length, prompt, fixes);
   return { name: repo.name, findings: findings.length, claims: proved };
 }
 
@@ -314,7 +319,7 @@ async function runRepo(target) {
 async function fixStep(target, proved) {
   const fixable = proved.filter((c) => c.verdict === "REPRODUCED" && c.seal &&
     (c.proof_kind === "dynamic" || (c.models || []).includes("polyjury-simulator")));
-  if (!fixable.length) return;
+  if (!fixable.length) return [];
   const s6 = step("6", "Fix it, then prove the fix",
                   "the same proof is run on the untouched code, then on the patched copy");
   const results = await Promise.all(fixable.map((claim) =>
@@ -325,6 +330,7 @@ async function fixStep(target, proved) {
   const fixed = results.filter(({ r }) => r.fixed).length;
   s6.say(`${fixed} of ${results.length} reproduced defects now have a patch the proof can no longer break.`);
   s6.done();
+  return results.map(({ claim, r }) => ({ title: claim.title, result: r }));
 }
 
 function fixCard(claim, r) {
@@ -384,6 +390,15 @@ async function replay(path) {
   summary(s5.body, data.claims, data.findings_total);
   fixPromptBlock(s5.body, data.fix_prompt);
   s5.done();
+  if ((data.fixes || []).length) {
+    await new Promise((f) => setTimeout(f, 700));
+    const s6 = step("6", "Fix it, then prove the fix", "");
+    data.fixes.forEach((f) => s6.body.appendChild(fixCard({ title: f.title }, f.result)));
+    const ok = data.fixes.filter((f) => f.result.fixed).length;
+    s6.say(`${ok} of ${data.fixes.length} reproduced defects got a patch the proof can no longer break.`);
+    s6.done();
+  }
+  verdictTop(data.claims, data.findings_total, data.fix_prompt, data.fixes);
 }
 
 /* ---------- shell ---------- */
@@ -395,10 +410,10 @@ function setMode(mode) {
   $("mode-note").textContent = MODES[mode].note;
   $("composer-hint").textContent = MODES[mode].hint;
   $("row-repo").hidden = mode !== "repo";
-  $("run-form").hidden = mode === "recorded";
-  if (mode === "recorded") {
+  $("run-form").hidden = !!MODES[mode].file;
+  if (MODES[mode].file) {
     clearTimeline();
-    replay("/example.json").catch((err) => fail(err.message));
+    replay(MODES[mode].file).catch((err) => fail(err.message));
   }
 }
 
@@ -444,7 +459,9 @@ $("run-form").addEventListener("submit", async (event) => {
 
 // polyjury.vercel.app/#recorded opens the finished case straight away (a link for people who
 // only want to see what a verdict looks like, without convening a jury)
-if (location.hash === "#recorded") setMode("recorded");
+wireIdle();
+const HASHES = { "#recorded": "recorded", "#recorded-code": "recorded-code" };
+if (HASHES[location.hash]) setMode(HASHES[location.hash]);
 
 fetch("/api/models")
   .then((r) => r.json())

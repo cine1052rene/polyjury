@@ -225,3 +225,32 @@ pre {
 .case b { display: block; font-size: 12.5px; font-weight: 600; word-break: break-all; }
 .case i { display: block; font-style: normal; font-size: 11.5px; color: var(--muted); }
 #history .linkish { margin: 4px 10px; }
+
+/* ---- the answer first: verdict card on top, sample cases on the empty screen ---- */
+.verdict-top {
+  background: linear-gradient(180deg, #13261b 0%, var(--panel) 80%); border: 1px solid #2f7d55;
+  border-radius: 14px; padding: 18px 20px; scroll-margin-top: 12px;
+}
+.verdict-top .eyebrow { margin: 0; font: 600 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.verdict-top h2 { font-size: 21px; margin-top: 4px; }
+.verdict-top .said { color: var(--muted); font-size: 13.5px; margin: 3px 0 0; }
+.verdict-top ol { margin: 12px 0 0; padding-left: 20px; display: grid; gap: 6px; }
+.verdict-top li a { color: var(--ink); font-weight: 600; text-decoration: none; }
+.verdict-top li a:hover { text-decoration: underline; }
+.verdict-top li span { display: block; color: var(--muted); font-size: 12.5px; }
+.verdict-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+.verdict-actions .toggle { text-decoration: none; }
+.claim { scroll-margin-top: 12px; }
+.idle-label { margin: 22px 0 10px !important; font-weight: 600; }
+.samples { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); max-width: 980px; }
+.idle:has(.samples) { max-width: none; }
+.sample {
+  text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  color: var(--ink); padding: 14px 16px; display: grid; gap: 6px; align-content: start;
+}
+.sample:hover { border-color: var(--accent); }
+.sample b { font-size: 14.5px; }
+.sample i { font-style: normal; color: #bcc6d9; font-size: 13px; }
+.sample span { color: var(--accent); font-size: 12.5px; font-weight: 600; }
+.sample.live { background: none; border-style: dashed; }
+.verdict-top li em { display: block; font-style: normal; color: var(--accent); font-size: 13.5px; margin-top: 2px; }
