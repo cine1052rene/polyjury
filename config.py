@@ -13,7 +13,7 @@ load_dotenv(ROOT / ".env")
 def _require(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
-        raise RuntimeError(f"환경변수 {name} 가 비어 있습니다. .env 를 확인하세요.")
+        raise RuntimeError(f"{name} is not set: copy .env.example to .env and fill it in.")
     return value
 
 

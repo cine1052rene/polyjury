@@ -10,6 +10,14 @@ make the defect actually happen. The script is executed. **Only what is reproduc
 A review that says "this might be vulnerable" costs you an afternoon. A review that says
 "here is the request, here is the response, here is the file it wrote" costs you a fix.
 
+- **Try it:** [polyjury.vercel.app/#recorded](https://polyjury.vercel.app/#recorded) replays a finished
+  case in about ten seconds, verdict first; paste any public GitHub repository or folder to run one live.
+- **Watch it:** [two-minute demo](https://youtu.be/goTZG2UcbrU) (English, Korean and English captions).
+- **What it found:** in DeepMind's MuJoCo Menagerie, the SO-101 arm's elbow, moved alone inside its
+  own limit, drives the shoulder into the wrist —
+  [issue #325](https://github.com/google-deepmind/mujoco_menagerie/issues/325); a fix is open as
+  [PR #332](https://github.com/google-deepmind/mujoco_menagerie/pull/332).
+
 ## Why a jury
 
 Measured on this project's own code, three models produced 17 findings between them and only
@@ -94,6 +102,35 @@ make verdicts more repeatable (the same 8 claims proved twice: 4/8 identical eit
 claim took 361 s, past the 300 s a serverless call gets, so it is off by default
 (`POLYJURY_PROOFS`, `polyjury/consensus.py`). The control run is what keeps a fix honest.
 
+## What it can't do
+
+- **"Reproduced" means the behaviour happened, not that it is a defect.** Across eight real
+  repositories, 11 claims reproduced and a person, checking each one by hand, kept 2: the other 9
+  ran as described but were intended, guarded or unreachable. Check a verdict before you file it.
+- **Runs differ.** Even at temperature 0, two runs of the same repository raise different
+  claims. The simulator check on a robot description is deterministic. Measured 2026-10-25, the same target
+  several times in a row: on Menagerie's SO-101 the simulator reproduced the elbow collision in 4 of 4
+  runs with identical numbers, and its fix was proved each time; on fastapi-cli every run merged
+  8 claims, and 0, 4 and 3 of them reproduced. The same `sys.path` claim was reproduced twice
+  and rejected by the audit the third time. Treat one run as a sample, not a census.
+- **Public GitHub code only**, Python repositories and robot descriptions (URDF, MJCF) in
+  practice. Proofs that need a database, a GPU, a network service or large data come back
+  `NEEDS A HUMAN`.
+- **The robot check measures penetration deeper than 3 mm**, with each joint moved alone from
+  the home pose. A patch it proves stops the arm driving into itself; it can stop short of the
+  angle where two parts first touch (Menagerie's fix uses that angle, 1.474 rad; Polyjury's
+  patch is 1.5594).
+- **A flagged robot is a candidate, not a finding.** A pre-registered sweep of the 25 arms in
+  Menagerie's README (2026-10-25, the same measurement through
+  [jointsweep](https://github.com/cine1052rene/jointsweep), no models) flagged 19; by hand, one is
+  confirmed, the SO-101 elbow, already #325. The rest were not reviewed and were not reported:
+  fingers that close on each other are flagged too, and "home" is all joints at zero, which on
+  some arms (Franka's joint 4) is outside the range; using the model's own home keyframe instead
+  changes 19 to 17.
+- **Limits on the demo:** every step has a per-visitor and a site-wide limit per ten minutes,
+  counted per server instance. Signing in with GitHub doubles yours; your own Nebius key makes
+  the models run on your credits instead of the demo's. Neither is stored on the server.
+
 ## Run it
 
 ```bash
@@ -146,8 +183,13 @@ deployment.
 | `polyjury/sources.py` | Tavily finds the standard or documentation that names the defect |
 | `polyjury/known.py` | is the defect already an issue or pull request upstream? GitHub + Tavily, judged by Nemotron |
 | `polyjury/report.py` | the verdicts, plus a prompt you can paste back to the AI that wrote the code |
+| `polyjury/robot.py`, `robot_helper.py` | finds robot descriptions and their meshes; the fixed simulation proof and the MuJoCo helper it imports |
+| `polyjury/tools.py` | ffmpeg and fonts in the sandbox when the code needs them |
+| `polyjury/accounts.py`, `context.py` | optional GitHub sign-in and your own Nebius key, kept in encrypted cookies only |
 | `polyjury/llm.py` | one place that talks to Token Factory |
 | `app/server.py` | one short HTTP call per step, so the browser can show the work |
+| `webui/` | the site: `app.js` runs the steps, `verdict.js` puts the verdict first, `example*.json` are the recorded cases |
+| `scripts/record_example.py` | records a case from the live API into the replay format |
 
 ## Sources
 
@@ -192,13 +234,11 @@ reviews and writing a falsifiable test is judgement, not retrieval.
 
 ## What's next
 
-A robot description is the first kind of hardware Polyjury can prove things about. The next
-question is whether the same loop works one step earlier: an AI writes the CAD (CadQuery) and
-the URDF for a wearable from a brief, and Polyjury checks the geometry against the brief. A
-first experiment on AR-glasses frames showed that the build-and-load loop works and that
-collision checks alone are not enough — a frame with no lens openings passes them — so the
-next step is brief-derived geometric assertions plus a vision model comparing renders to the
-brief.
+Robot descriptions are the first kind of hardware Polyjury can prove things about, and the
+measuring part has since become a standalone, model-free tool with a GitHub Action,
+[jointsweep](https://github.com/cine1052rene/jointsweep), that Polyjury will depend on. Next:
+sweep the public robot model collections and report only what a person has checked; and a
+GitHub Action that comments on a pull request only with what reproduced.
 
 ## Licence
 
